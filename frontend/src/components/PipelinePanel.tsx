@@ -27,102 +27,167 @@ const nodeTypes = {
   assessor: AssessorNode,
 };
 
-// ponytail: static layout — computed once, not recalculated on resize
+// ponytail: explicit 24-node L→R pipeline — every source + dot is its own visible node
 function buildLayout(status: PipelineStatus): { nodes: Node[]; edges: Edge[] } {
   const live = status.nodes?.length > 0;
 
-  // Column x-positions for L→R flow
-  const COL = { fetcher: 80, scorer: 300, agent: 520, synthesizer: 750, assessor: 950 };
-  const agentYStart = 40;
-  const agentYSpacing = 100;
+  const COL = { source: 50, monitor: 300, dot: 540, agent: 830, pathways: 1110, endstate: 1350 };
+  const sourceYStart = 40;    const sourceYSpacing = 72;
+  const dotYStart = 15;       const dotYSpacing = 56;
+  const agentYStart = 65;     const agentYSpacing = 115;
+  const monitorY = sourceYStart + (5 * sourceYSpacing) / 2;
+  const pathwaysY = agentYStart + (4 * agentYSpacing) / 2;
+  const endstateY = pathwaysY;
 
-  // ponytail: edge label derived from source→target type pair
+  // ponytail: edge labels for each transition type
   function edgeLabel(sourceType: string, targetType: string): string | undefined {
-    if (sourceType === "fetcher" && targetType === "scorer") return "fetches indicators";
-    if (sourceType === "scorer" && targetType === "agent") return "dispatches dots";
-    if (sourceType === "agent" && targetType === "synthesizer") return "pathways";
-    if (sourceType === "synthesizer" && targetType === "assessor") return "assesses end state";
+    if (sourceType === "source" && targetType === "monitor") return "raw data";
+    if (sourceType === "monitor" && targetType === "dot") return "identifies";
+    if (sourceType === "dot" && targetType === "agent") return "assigned";
+    if (sourceType === "agent" && targetType === "pathways") return "pathways";
+    if (sourceType === "pathways" && targetType === "endstate") return "assesses";
     return undefined;
   }
 
-  function nodeData(n: any) {
+  // ponytail: shared edge factory
+  function makeEdge(source: string, target: string, sourceType: string, targetType: string, idx: number): Edge {
     return {
-      label: n.label,
-      status: n.status,
-      count: n.input_summary ?? "",
-      duration: n.duration_ms ? `${n.duration_ms}ms` : "",
-      dots: n.input_summary ?? "",
-      model: "",
-      pathways: "",
-      endState: n.output_summary ?? "",
-      composite: 0,
-    };
-  }
-
-  if (live) {
-    // ponytail: position nodes by type into columns; same-type nodes stack vertically
-    const typeCounters: Record<string, number> = {};
-    const nodes = status.nodes.map((n) => {
-      const idx = typeCounters[n.type] ?? 0;
-      typeCounters[n.type] = idx + 1;
-      const y = n.type === "agent"
-        ? agentYStart + idx * agentYSpacing
-        : 260; // ponytail: non-stacked types centered vertically
-      return {
-        id: n.id,
-        type: n.type,
-        position: { x: COL[n.type as keyof typeof COL] ?? 300, y },
-        data: nodeData(n),
-      };
-    });
-
-    // ponytail: build type lookup for edge labels
-    const typeMap = new Map(nodes.map((n) => [n.id, n.type as string]));
-    const edges = status.edges.map((e, i) => ({
-      id: `e-${i}`,
-      source: e.source,
-      target: e.target,
+      id: `e-${idx}`,
+      source, target,
       animated: true,
       style: { stroke: "#a1a1aa", strokeDasharray: "5 5" },
-      label: edgeLabel(typeMap.get(e.source) ?? "", typeMap.get(e.target) ?? ""),
+      label: edgeLabel(sourceType, targetType),
       labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" },
       labelShowBg: true,
       labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 },
       labelBgPadding: [4, 2] as [number, number],
       labelBgBorderRadius: 2,
-    }));
-
-    return { nodes, edges };
+    };
   }
 
-  // Default static layout — 5-column L→R flow
-  return {
-    nodes: [
-      { id: "fetchers", type: "fetcher", position: { x: COL.fetcher, y: 260 }, data: { label: "DATA FETCHERS", status: "success", count: "0/11", duration: "—" } },
-      { id: "scorer", type: "scorer", position: { x: COL.scorer, y: 260 }, data: { composite: 0, label: "MONITOR", status: "success" } },
-      { id: "agent1", type: "agent", position: { x: COL.agent, y: agentYStart }, data: { label: "GEOPOLITICAL", status: "success", dots: "Dots 1+2", duration: "—", model: "pending" } },
-      { id: "agent2", type: "agent", position: { x: COL.agent, y: agentYStart + agentYSpacing }, data: { label: "FOOD & DEBT", status: "success", dots: "Dots 3+5", duration: "—", model: "pending" } },
-      { id: "agent3", type: "agent", position: { x: COL.agent, y: agentYStart + agentYSpacing * 2 }, data: { label: "FINANCIAL & EM", status: "success", dots: "Dot 4+EM", duration: "—", model: "pending" } },
-      { id: "agent4", type: "agent", position: { x: COL.agent, y: agentYStart + agentYSpacing * 3 }, data: { label: "CHINA & POLITICAL", status: "success", dots: "Dots 6-8", duration: "—", model: "pending" } },
-      { id: "agent5", type: "agent", position: { x: COL.agent, y: agentYStart + agentYSpacing * 4 }, data: { label: "HEALTH", status: "success", dots: "Dot 9", duration: "—", model: "pending" } },
-      { id: "synthesizer", type: "synthesizer", position: { x: COL.synthesizer, y: 260 }, data: { label: "PATHWAY SYNTH", status: "success", pathways: "pending", duration: "—" } },
-      { id: "assessor", type: "assessor", position: { x: COL.assessor, y: 260 }, data: { label: "END STATE", status: "success", endState: "pending", duration: "—" } },
-    ],
-    edges: [
-      { id: "e1", source: "fetchers", target: "scorer", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "fetches indicators", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e2", source: "scorer", target: "agent1", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "dispatches dots", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e3", source: "scorer", target: "agent2", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "dispatches dots", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e4", source: "scorer", target: "agent3", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "dispatches dots", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e5", source: "scorer", target: "agent4", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "dispatches dots", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e6", source: "scorer", target: "agent5", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "dispatches dots", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e7", source: "agent1", target: "synthesizer", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "pathways", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e8", source: "agent2", target: "synthesizer", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "pathways", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e9", source: "agent3", target: "synthesizer", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "pathways", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e10", source: "agent4", target: "synthesizer", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "pathways", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e11", source: "agent5", target: "synthesizer", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "pathways", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-      { id: "e12", source: "synthesizer", target: "assessor", animated: true, style: { stroke: "#a1a1aa", strokeDasharray: "5 5" }, label: "assesses end state", labelStyle: { fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }, labelShowBg: true, labelBgStyle: { fill: "#18181b", fillOpacity: 0.85 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 2 },
-    ],
-  };
+  // ponytail: 6 source definitions — one per data source
+  const SRC = [
+    { id: "src-rss",    label: "RSS Feeds" },
+    { id: "src-who",    label: "WHO API" },
+    { id: "src-market", label: "Market Data" },
+    { id: "src-em",     label: "EM Currencies" },
+    { id: "src-gold",   label: "Gold Price" },
+    { id: "src-news",   label: "News Agg." },
+  ];
+
+  // ponytail: 10 dot definitions
+  const DOTS = [
+    { id: "dot-1", label: "Dot 1" },
+    { id: "dot-2", label: "Dot 2" },
+    { id: "dot-3", label: "Dot 3" },
+    { id: "dot-4", label: "Dot 4" },
+    { id: "dot-5", label: "Dot 5" },
+    { id: "dot-6", label: "Dot 6" },
+    { id: "dot-7", label: "Dot 7" },
+    { id: "dot-8", label: "Dot 8" },
+    { id: "dot-9", label: "Dot 9" },
+    { id: "dot-em", label: "Dot EM" },
+  ];
+
+  // ponytail: 5 agent definitions with dot assignments
+  const AGENTS = [
+    { id: "agent-geo",    label: "Geopolitical",      dots: ["dot-1", "dot-2"] },
+    { id: "agent-food",   label: "Food & Debt",       dots: ["dot-3", "dot-5"] },
+    { id: "agent-fin",    label: "Financial & EM",    dots: ["dot-4", "dot-em"] },
+    { id: "agent-china",  label: "China & Political", dots: ["dot-6", "dot-7", "dot-8"] },
+    { id: "agent-health", label: "Health",            dots: ["dot-9"] },
+  ];
+
+  // ponytail: live branch overlays backend status onto the same 24-node layout
+  const beFetchers  = live ? status.nodes.filter((n: any) => n.type === "fetcher") : [];
+  const beScorer    = live ? status.nodes.find((n: any) => n.type === "scorer") : undefined;
+  const beAgents    = live ? status.nodes.filter((n: any) => n.type === "agent") : [];
+  const beSynth     = live ? status.nodes.find((n: any) => n.type === "synthesizer") : undefined;
+  const beAssessor  = live ? status.nodes.find((n: any) => n.type === "assessor") : undefined;
+
+  function beNode(n: any) {
+    return {
+      status: n?.status ?? "success",
+      duration: n?.duration_ms ? `${n.duration_ms}ms` : "—",
+      count: n?.input_summary ?? "",
+      output: n?.output_summary ?? "",
+    };
+  }
+
+  // Build 24 nodes
+  const nodes: Node[] = [
+    // 6 source nodes
+    ...SRC.map((s, i) => {
+      const be = live && beFetchers[i] ? beFetchers[i] : null;
+      return {
+        id: s.id, type: "fetcher",
+        position: { x: COL.source, y: sourceYStart + i * sourceYSpacing },
+        data: { label: be?.label ?? s.label, status: be?.status ?? "success", count: be?.input_summary ?? "—", duration: be?.duration_ms ? `${be.duration_ms}ms` : "—", tooltip: s.label, minWidth: 130 },
+      };
+    }),
+    // 1 monitor node
+    {
+      id: "monitor", type: "scorer",
+      position: { x: COL.monitor, y: monitorY },
+      data: live && beScorer
+        ? { composite: 0, label: beScorer.label || "MONITOR", status: beScorer.status }
+        : { composite: 0, label: "MONITOR", status: "success" },
+    },
+    // 10 dot nodes (always synthetic — backend has no dot entities)
+    ...DOTS.map((d, i) => ({
+      id: d.id, type: "fetcher",
+      position: { x: COL.dot, y: dotYStart + i * dotYSpacing },
+      data: { label: d.label, status: "success" as const, count: "—", duration: "—", tooltip: d.label, minWidth: 75 },
+    })),
+    // 5 agent nodes
+    ...AGENTS.map((a, i) => {
+      const be = live && beAgents[i] ? beAgents[i] : null;
+      const dotLabel = a.dots.map((d: string) => d.replace("dot-", "Dot ")).join("+");
+      return {
+        id: a.id, type: "agent",
+        position: { x: COL.agent, y: agentYStart + i * agentYSpacing },
+        data: {
+          label: be?.label ?? a.label,
+          status: be?.status ?? "success",
+          dots: be?.input_summary ?? dotLabel,
+          duration: be?.duration_ms ? `${be.duration_ms}ms` : "—",
+          model: (be as any)?.model ?? "pending",
+        },
+      };
+    }),
+    // 1 pathways node
+    {
+      id: "pathways", type: "synthesizer",
+      position: { x: COL.pathways, y: pathwaysY },
+      data: live && beSynth
+        ? { label: beSynth.label || "PATHWAY SYNTH", status: beSynth.status, pathways: beSynth.input_summary ?? "", duration: beSynth.duration_ms ? `${beSynth.duration_ms}ms` : "—" }
+        : { label: "PATHWAY SYNTH", status: "success" as const, pathways: "pending", duration: "—" },
+    },
+    // 1 end state node
+    {
+      id: "endstate", type: "assessor",
+      position: { x: COL.endstate, y: endstateY },
+      data: live && beAssessor
+        ? { label: beAssessor.label || "END STATE", status: beAssessor.status, endState: beAssessor.output_summary ?? "", duration: beAssessor.duration_ms ? `${beAssessor.duration_ms}ms` : "—" }
+        : { label: "END STATE", status: "success" as const, endState: "pending", duration: "—" },
+    },
+  ];
+
+  // Build 32 edges
+  const edges: Edge[] = [];
+  let ei = 0;
+  // 6 source → monitor
+  for (const s of SRC) edges.push(makeEdge(s.id, "monitor", "source", "monitor", ei++));
+  // 10 monitor → dot
+  for (const d of DOTS) edges.push(makeEdge("monitor", d.id, "monitor", "dot", ei++));
+  // dot → agent (10 edges based on assignments)
+  for (const a of AGENTS) for (const dotId of a.dots) edges.push(makeEdge(dotId, a.id, "dot", "agent", ei++));
+  // 5 agent → pathways
+  for (const a of AGENTS) edges.push(makeEdge(a.id, "pathways", "agent", "pathways", ei++));
+  // 1 pathways → endstate
+  edges.push(makeEdge("pathways", "endstate", "pathways", "endstate", ei++));
+
+  return { nodes, edges };
 }
 
 export function PipelinePanel() {
