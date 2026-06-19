@@ -91,7 +91,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
       {/* 0. Daily Briefing */}
       {report.briefing?.trim() && (
         <div className="p-5 rounded border border-zinc-700 bg-zinc-900/60">
-          <h2 className="text-[10px] font-mono text-zinc-500 mb-4">DAILY BRIEFING</h2>
+          <h2 className="text-xs font-mono text-zinc-500 mb-4">DAILY BRIEFING</h2>
           <div className="space-y-3">
             {report.briefing.split(/\n\s*\n/).filter(Boolean).map((para, i) => (
               <p key={i} className="font-sans text-xs leading-relaxed text-zinc-300">
@@ -106,7 +106,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
       <div className={`p-5 rounded border ${endColor.replace("bg-", "border-")} ${endColor.replace("bg-", "bg-")}/10`}>
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-mono text-zinc-500">END STATE ASSESSMENT</span>
+            <span className="text-xs font-mono text-zinc-500">END STATE ASSESSMENT</span>
             <h2 className={`text-xl font-mono font-bold mt-1 ${endColor.replace("bg-", "text-")}`}>
               {endState.toUpperCase()}
             </h2>
@@ -121,7 +121,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
 
       {/* 2. Active Pathways */}
       <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50">
-        <h3 className="text-[10px] font-mono text-zinc-500 mb-3">PATHWAY ACTIVATION</h3>
+        <h3 className="text-xs font-mono text-zinc-500 mb-3">PATHWAY ACTIVATION</h3>
         <div className="space-y-2">
           {(pathways ?? []).map((pw, idx) => {
             const pwName = getPathwayName(pw);
@@ -135,7 +135,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
                 <span className="text-xs font-mono text-zinc-300">{pwName}</span>
               </div>
               {pw.description && (
-                <p className="text-[10px] text-zinc-500 ml-6 leading-relaxed">{pw.description}</p>
+                <p className="text-xs text-zinc-500 ml-6 leading-relaxed">{pw.description}</p>
               )}
             </div>
           )})}
@@ -147,15 +147,15 @@ export function ReportPanel({ data }: { data: DashboardData }) {
 
       {/* 3. Situation Summary */}
       <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50">
-        <h3 className="text-[10px] font-mono text-zinc-500 mb-3">SITUATION SUMMARY</h3>
+        <h3 className="text-xs font-mono text-zinc-500 mb-3">SITUATION SUMMARY</h3>
         <p className="text-xs text-zinc-400 leading-relaxed max-w-none">{report.synthesis}</p>
         <div className="flex items-center gap-4 mt-3 flex-wrap">
           <div>
-            <span className="text-[9px] font-mono text-zinc-600 block mb-1">COMPOSITE TREND</span>
+            <span className="text-xs font-mono text-zinc-600 block mb-1">COMPOSITE TREND</span>
             <Sparkline data={trajectoryDays.map((d) => d.score)} width={140} height={28} color="auto" />
           </div>
           <div>
-            <span className="text-[9px] font-mono text-zinc-600 block mb-1">INDICATORS</span>
+            <span className="text-xs font-mono text-zinc-600 block mb-1">INDICATORS</span>
             <Sparkline data={sparkData.slice(0, 8)} width={100} height={24} color="auto" />
           </div>
         </div>
@@ -164,14 +164,14 @@ export function ReportPanel({ data }: { data: DashboardData }) {
       {/* 4. Five Key Questions */}
       <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[10px] font-mono text-zinc-500">5 KEY QUESTIONS</h3>
+          <h3 className="text-xs font-mono text-zinc-500">5 KEY QUESTIONS</h3>
           <button
             type="button"
             onClick={() => {
               if (expandedQ.size === questions.length) setExpandedQ(new Set());
               else setExpandedQ(new Set(questions.map((_, i) => i)));
             }}
-            className="text-[10px] font-mono text-zinc-600 hover:text-zinc-400"
+            className="text-xs font-mono text-zinc-600 hover:text-zinc-400"
           >
             {expandedQ.size === questions.length ? "Collapse all" : "Expand all"}
           </button>
@@ -186,32 +186,32 @@ export function ReportPanel({ data }: { data: DashboardData }) {
                   onClick={() => toggleQ(idx)}
                   className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-zinc-900/50"
                 >
-                  <span className="text-[10px] font-mono text-zinc-600">Q{idx + 1}</span>
-                  <span className="text-[11px] font-mono text-zinc-300 flex-1">{item.question}</span>
-                  <span className="text-[10px] text-zinc-600">{isExpanded ? "▲" : "▼"}</span>
+                  <span className="text-xs font-mono text-zinc-600">Q{idx + 1}</span>
+                  <span className="text-sm font-mono text-zinc-300 flex-1">{item.question}</span>
+                  <span className="text-xs text-zinc-600">{isExpanded ? "▲" : "▼"}</span>
                 </button>
                 {isExpanded && (
                   <div className="px-3 pb-3 pt-1 border-t border-zinc-800/50">
-                    <p className="text-[11px] text-zinc-400 leading-relaxed">{item.answer}</p>
+                    <p className="text-sm text-zinc-400 leading-relaxed">{item.answer}</p>
                     {(item.verdict || item.assessment) && (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {item.verdict && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                          <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
                             verdict: {item.verdict}
                           </span>
                         )}
                         {item.assessment && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                          <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
                             assessment: {item.assessment}
                           </span>
                         )}
                       </div>
                     )}
                     <div className="mt-2">
-                      <span className="text-[9px] font-mono text-zinc-600">Supporting indicators:</span>
+                      <span className="text-xs font-mono text-zinc-600">Supporting indicators:</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {(indicators ?? []).slice(0, 3).map((ind) => (
-                          <span key={ind.name} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500">
+                          <span key={ind.name} className="text-xs font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500">
                             {ind.name}: {ind.value?.toFixed(1)} {ind.unit}
                           </span>
                         ))}
@@ -223,23 +223,23 @@ export function ReportPanel({ data }: { data: DashboardData }) {
             );
           })}
           {questions.length === 0 && (
-            <span className="text-[10px] text-zinc-600">No questions available</span>
+            <span className="text-xs text-zinc-600">No questions available</span>
           )}
         </div>
       </div>
 
       {/* 5. Dot Status Delta */}
       <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50">
-        <h3 className="text-[10px] font-mono text-zinc-500 mb-3">DOT STATUS</h3>
+        <h3 className="text-xs font-mono text-zinc-500 mb-3">DOT STATUS</h3>
         <div className="space-y-1">
           {sortedDots.map((dot, idx) => {
             const dc = STATUS_COLORS[dot.status];
             return (
               <div key={`dot-${dot.dot_number}-${idx}`} className="flex items-center gap-3 px-2 py-1 rounded bg-zinc-900/40">
-                <span className="text-[10px] font-mono text-zinc-600 w-8">D{dot.dot_number}</span>
-                <span className="text-[10px] font-mono text-zinc-400 flex-1">{getDotDisplayName(dot.dot_name)}</span>
+                <span className="text-xs font-mono text-zinc-600 w-8">D{dot.dot_number}</span>
+                <span className="text-xs font-mono text-zinc-400 flex-1">{getDotDisplayName(dot.dot_name)}</span>
                 <span className={`w-2 h-2 rounded-full ${dc.dot}`} />
-                <span className={`text-[10px] font-mono ${dc.text}`}>{dot.status}</span>
+                <span className={`text-xs font-mono ${dc.text}`}>{dot.status}</span>
               </div>
             );
           })}
@@ -248,7 +248,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
 
       {/* 6. End State Trajectory (7-day) */}
       <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50">
-        <h3 className="text-[10px] font-mono text-zinc-500 mb-3">7-DAY TRAJECTORY</h3>
+        <h3 className="text-xs font-mono text-zinc-500 mb-3">7-DAY TRAJECTORY</h3>
         <div className="flex items-center gap-2">
           {trajectoryDays.map((day, i) => {
             const dayColor = compositeColor(day.score);
@@ -260,8 +260,8 @@ export function ReportPanel({ data }: { data: DashboardData }) {
                   isToday ? "border border-zinc-400 bg-zinc-800" : "bg-zinc-900/60"
                 }`}
               >
-                <span className="text-[9px] text-zinc-500">{day.label}</span>
-                <span className={`text-[11px] font-bold ${dayColor.text}`}>{day.score}</span>
+                <span className="text-xs text-zinc-500">{day.label}</span>
+                <span className={`text-sm font-bold ${dayColor.text}`}>{day.score}</span>
               </div>
             );
           })}
@@ -269,7 +269,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
       </div>
 
       {/* 7. Footer */}
-      <div className="flex items-center justify-between text-[10px] font-mono text-zinc-600 border-t border-zinc-800 pt-3">
+      <div className="flex items-center justify-between text-xs font-mono text-zinc-600 border-t border-zinc-800 pt-3">
         <span>Generated: {new Date(report.created_at).toLocaleString()}</span>
         <span>Next run: daily at 08:00</span>
       </div>

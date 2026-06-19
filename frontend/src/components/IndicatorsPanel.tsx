@@ -71,14 +71,14 @@ export function IndicatorsPanel({ data }: { data: DashboardData }) {
                 <span className="text-xs font-mono text-zinc-300 flex-1">
                   {CATEGORY_NAMES[cat] ?? cat}
                 </span>
-                <span className="text-[10px] font-mono text-zinc-600">{inds.length} indicators</span>
+                <span className="text-xs font-mono text-zinc-600">{inds.length} indicators</span>
                 {criticals > 0 && (
-                  <span className="text-[10px] font-mono text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">
+                  <span className="text-xs font-mono text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">
                     {criticals} Critical
                   </span>
                 )}
                 {actives > 0 && (
-                  <span className="text-[10px] font-mono text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded">
+                  <span className="text-xs font-mono text-orange-400 bg-orange-400/10 px-1.5 py-0.5 rounded">
                     {actives} Active
                   </span>
                 )}

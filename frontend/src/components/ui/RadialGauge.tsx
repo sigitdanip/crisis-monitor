@@ -19,7 +19,7 @@ export function RadialGauge({ value, max, size = 160, color, label, sublabel }: 
   const fillLen = pct * circumference * (arcAngle / 360);
 
   return (
-    <div className="relative inline-flex flex-col items-center" style={{ width: size, height: size }}>
+    <div className="relative inline-flex flex-col items-center overflow-hidden" style={{ width: size, height: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         {/* Background arc */}
         <circle
@@ -42,11 +42,11 @@ export function RadialGauge({ value, max, size = 160, color, label, sublabel }: 
           transform={`rotate(${startAngle} ${cx} ${cy})`}
         />
       </svg>
-      <div className="absolute flex flex-col items-center" style={{ top: size * 0.42 }}>
-        <span className="text-3xl font-mono font-bold tracking-tighter">{value}</span>
-        <span className="text-[10px] text-zinc-500 mt-0.5">/ {max}</span>
-        {label && <span className="text-xs text-zinc-400 mt-1">{label}</span>}
-        {sublabel && <span className="text-[10px] text-zinc-600">{sublabel}</span>}
+      <div className="absolute flex flex-col items-center" style={{ top: size * 0.38 }}>
+        <span className="font-mono font-bold tracking-tighter" style={{ fontSize: size * 0.28 }}>{value}</span>
+        <span className="text-zinc-500 mt-0.5" style={{ fontSize: size * 0.13 }}>/ {max}</span>
+        {label && <span className="text-zinc-400 mt-1" style={{ fontSize: size * 0.15 }}>{label}</span>}
+        {sublabel && <span className="text-zinc-600" style={{ fontSize: size * 0.12 }}>{sublabel}</span>}
       </div>
     </div>
   );

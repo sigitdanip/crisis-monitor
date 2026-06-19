@@ -5,17 +5,23 @@ export type DotStatus = "dormant" | "activating" | "active" | "critical";
 // The backend stores raw variable keys like 'dot_1', 'em_currency'.
 // ---------------------------------------------------------------------------
 export const DOT_DISPLAY_NAMES: Record<string, string> = {
+  // Agent 3: EM Currency stress
   dot_0: "EM Currency Stress",
   em_currency: "EM Currency Stress",
+  // Agent 1: Geopolitical — NATO + Energy Security
   dot_1: "Geopolitical NATO Fracture",
-  dot_2: "Food Supply Crisis",
-  dot_3: "Credit Contagion",
-  dot_4: "China Political Stability",
-  dot_5: "Global Health",
-  dot_6: "Energy Storage",
-  dot_7: "Sovereign Debt",
-  dot_8: "Banking Stress",
-  dot_9: "Social Unrest",
+  dot_2: "Energy Security",
+  // Agent 2: Food + Sovereign Debt
+  dot_3: "Food Supply Crisis",
+  dot_5: "Sovereign Debt",
+  // Agent 3: Credit/Financial
+  dot_4: "Credit Contagion",
+  // Agent 4: China + Political + Supply Chain
+  dot_6: "China Political Stability",
+  dot_7: "Social Unrest",
+  dot_8: "Supply Chain Disruption",
+  // Agent 5: Health/Pandemic
+  dot_9: "Global Health",
 };
 
 /** Map a raw dot_name (e.g. 'dot_1', 'em_currency') to a human-readable label. */

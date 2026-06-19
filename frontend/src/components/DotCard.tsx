@@ -70,19 +70,19 @@ export function DotCard({ dot, expanded, onToggle, indicators: allIndicators, pa
         <div className="px-4 pb-4 pt-1 space-y-3 border-t border-zinc-800/50">
           {/* LLM Summary */}
           <div>
-            <h4 className="text-[10px] font-mono text-zinc-600 mb-1">SUMMARY</h4>
+            <h4 className="text-xs font-mono text-zinc-600 mb-1">SUMMARY</h4>
             <p className="text-xs text-zinc-400 leading-relaxed max-w-none">{dot.summary}</p>
           </div>
 
           {/* Key Signals */}
           {signals.length > 0 && (
             <div>
-              <h4 className="text-[10px] font-mono text-zinc-600 mb-1">KEY SIGNALS</h4>
+              <h4 className="text-xs font-mono text-zinc-600 mb-1">KEY SIGNALS</h4>
               <div className="flex flex-wrap gap-1.5">
                 {signals.map((sig, i) => (
                   <span
                     key={i}
-                    className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-400"
+                    className="text-xs font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-400"
                   >
                     {sig}
                   </span>
@@ -94,24 +94,24 @@ export function DotCard({ dot, expanded, onToggle, indicators: allIndicators, pa
           {/* Sources — LLM-generated attribution paragraph */}
           {dot.sources && typeof dot.sources === "string" && dot.sources.length > 0 && !dot.sources.startsWith("[") && (
             <div>
-              <h4 className="text-[10px] font-mono text-zinc-600 mb-1">SOURCES</h4>
-              <p className="text-[10px] text-zinc-500 leading-relaxed italic">{dot.sources}</p>
+              <h4 className="text-xs font-mono text-zinc-600 mb-1">SOURCES</h4>
+              <p className="text-xs text-zinc-500 leading-relaxed italic">{dot.sources}</p>
             </div>
           )}
 
           {/* Sparkline */}
           <div>
-            <h4 className="text-[10px] font-mono text-zinc-600 mb-1">7-DAY TREND</h4>
+            <h4 className="text-xs font-mono text-zinc-600 mb-1">7-DAY TREND</h4>
             <Sparkline data={indicatorSpark} width={160} height={28} color="auto" />
           </div>
 
           {/* Related Pathways */}
           {relatedPathways.length > 0 && (
             <div>
-              <h4 className="text-[10px] font-mono text-zinc-600 mb-1">CONNECTED PATHWAYS</h4>
+              <h4 className="text-xs font-mono text-zinc-600 mb-1">CONNECTED PATHWAYS</h4>
               <div className="flex items-center gap-3">
                 {relatedPathways.map((pw, idx) => (
-                  <span key={`relpw-${pw.pathway}-${idx}`} className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-500">
+                  <span key={`relpw-${pw.pathway}-${idx}`} className="flex items-center gap-1.5 text-xs font-mono text-zinc-500">
                     <span className={`w-1.5 h-1.5 rounded-full ${pw.active ? "bg-emerald-400" : "bg-zinc-600"}`} />
                     {getPathwayName(pw)}
                   </span>
@@ -122,12 +122,12 @@ export function DotCard({ dot, expanded, onToggle, indicators: allIndicators, pa
 
           {/* Related Indicators */}
           <div>
-            <h4 className="text-[10px] font-mono text-zinc-600 mb-1">INDICATORS</h4>
+            <h4 className="text-xs font-mono text-zinc-600 mb-1">INDICATORS</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
               {allIndicators.slice(0, 4).map((ind) => (
                 <div key={ind.name} className="flex items-center justify-between px-2 py-1 rounded bg-zinc-800/50">
-                  <span className="text-[10px] font-mono text-zinc-400 truncate flex-1">{ind.name}</span>
-                  <span className="text-[10px] font-mono text-zinc-300 ml-2">
+                  <span className="text-xs font-mono text-zinc-400 truncate flex-1">{ind.name}</span>
+                  <span className="text-xs font-mono text-zinc-300 ml-2">
                     {ind.value != null ? ind.value.toFixed(1) : "N/A"}{ind.unit}
                   </span>
                 </div>

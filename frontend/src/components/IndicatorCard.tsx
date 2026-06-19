@@ -16,13 +16,13 @@ export function IndicatorCard({ indicator }: { indicator: Indicator }) {
   return (
     <div className={`px-3 py-2 rounded border ${c.border} bg-zinc-900/60`}>
       <div className="flex items-start justify-between mb-1">
-        <span className="text-[10px] font-mono text-zinc-400 truncate flex-1">{indicator.name}</span>
+        <span className="text-xs font-mono text-zinc-400 truncate flex-1">{indicator.name}</span>
         <span className={`w-1.5 h-1.5 rounded-full ml-1.5 mt-0.5 shrink-0 ${c.dot}`} />
       </div>
 
       <div className="text-lg font-mono font-bold tabular-nums text-zinc-100">
         {value.toFixed(1)}
-        <span className="text-[10px] text-zinc-600 ml-1 font-normal">{indicator.unit}</span>
+        <span className="text-xs text-zinc-600 ml-1 font-normal">{indicator.unit}</span>
       </div>
 
       {/* Mini bar gauge */}
@@ -45,16 +45,16 @@ export function IndicatorCard({ indicator }: { indicator: Indicator }) {
       </div>
 
       <div className="flex items-center justify-between mt-1">
-        <span className="text-[9px] font-mono text-zinc-600">
+        <span className="text-xs font-mono text-zinc-600">
           {indicator.fetched_at ? new Date(indicator.fetched_at).toLocaleDateString() : "N/A"}
         </span>
-        <span className="text-[9px] font-mono text-zinc-600">
+        <span className="text-xs font-mono text-zinc-600">
           {triggerNum > 0 ? `Trigger: ${triggerNum.toFixed(1)}` : ""}
         </span>
       </div>
 
       {indicator.narrative && (
-        <p className="text-[10px] text-zinc-400 leading-relaxed mt-2 italic border-t border-zinc-800 pt-1.5">
+        <p className="text-xs text-zinc-400 leading-relaxed mt-2 italic border-t border-zinc-800 pt-1.5">
           {indicator.narrative}
         </p>
       )}

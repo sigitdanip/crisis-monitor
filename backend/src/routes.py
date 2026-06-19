@@ -81,13 +81,32 @@ async def get_pipeline_status():
         return {"nodes": [], "edges": [], "last_run": None, "total_duration_ms": 0, "success_count": 0}
 
     nodes = _last_run.get("node_timing", [])
-    edges = [
-        {"source": "composite_scorer_0", "target": "indicator_narrator_0"},
-        {"source": "indicator_narrator_0", "target": "dot_analyzers"},
-        {"source": "dot_analyzers", "target": "pathway_synthesizer"},
-        {"source": "pathway_synthesizer", "target": "end_state_assessor"},
-        {"source": "end_state_assessor", "target": "save_to_db"},
-    ]
+    # Build edges dynamically from sequential nodes, plus fan-in from
+    # the 5 individual agents into the "Dot Analyzers (parallel)" group.
+    edges = []
+    dot_analyzer_ids = []  # individual agent nodes
+    dot_group_id = None
+    for i, n in enumerate(nodes):
+        nid = n["id"]
+        # Collect individual dot analyzer agents
+        if n.get("type") == "agent" and n.get("label", "").startswith("Agent "):
+            dot_analyzer_ids.append(nid)
+        # Identify the parallel group node
+        if n.get("label") == "Dot Analyzers (parallel)":
+            dot_group_id = nid
+        # Chain sequential: each node → next node (skip for now, handled below)
+    # Build chain edges for sequential nodes (skip inter-agent since they run parallel)
+    prev_id = None
+    for n in nodes:
+        nid = n["id"]
+        if prev_id and nid not in dot_analyzer_ids:
+            edges.append({"source": prev_id, "target": nid})
+        if nid not in dot_analyzer_ids:
+            prev_id = nid
+    # Fan-in: each individual agent → dot group
+    if dot_group_id:
+        for aid in dot_analyzer_ids:
+            edges.append({"source": aid, "target": dot_group_id})
     return {
         "nodes": nodes,
         "edges": edges,

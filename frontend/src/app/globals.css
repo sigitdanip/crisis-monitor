@@ -16,7 +16,15 @@ body {
   color: #fafafa;
   font-family: var(--font-sans, ui-sans-serif, system-ui);
   -webkit-font-smoothing: antialiased;
+  font-size: 15px;
 }
+
+/* Global font size bumps for dashboard readability */
+.text-xs { font-size: 0.8rem !important; }
+.text-sm { font-size: 0.9rem !important; }
+.text-base { font-size: 1.05rem !important; }
+.text-lg { font-size: 1.2rem !important; }
+.text-xl { font-size: 1.4rem !important; }
 
 /* Status pulse for critical dots */
 @keyframes pulse-border {
@@ -27,7 +35,11 @@ body {
   animation: pulse-border 2s ease-in-out infinite;
 }
 
-/* React Flow overrides for dark theme */
+/* Tailwind v4 line-clamp fix — force -webkit-box display */
+.line-clamp-2, .line-clamp-3, .line-clamp-4 {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+}
 .react-flow__background {
   background: #09090b !important;
 }
@@ -37,8 +49,18 @@ body {
   fill: #a1a1aa !important;
 }
 .react-flow__edge-path {
-  stroke: #52525b !important;
+  stroke: #a1a1aa !important;
 }
 .react-flow__minimap {
   background: #18181b !important;
+}
+/* Edge label styling — readable on dark background */
+.react-flow__edge-textbg {
+  fill: #18181b !important;
+  fill-opacity: 0.85;
+}
+.react-flow__edge-text {
+  fill: #a1a1aa !important;
+  font-size: 10px !important;
+  font-family: var(--font-mono, ui-monospace, monospace) !important;
 }

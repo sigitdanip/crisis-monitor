@@ -12,13 +12,13 @@ export function ScorerNode({ data }: { data: ScorerNodeData }) {
   const scoreColor = data.composite <= 4 ? "#10b981" : data.composite <= 8 ? "#f59e0b" : data.composite <= 12 ? "#f97316" : "#ef4444";
   return (
     <div
-      className="px-5 py-3 flex flex-col items-center justify-center font-mono text-xs bg-zinc-800 border border-zinc-600"
+      className="px-5 py-3 flex flex-col items-center justify-center font-mono text-xs bg-zinc-800 border border-zinc-400"
       style={{ clipPath: "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)", width: 90, height: 84 }}
     >
-      <Handle type="target" position={Position.Top} className="!bg-zinc-600" style={{ top: 0 }} />
+      <Handle type="target" position={Position.Top} className="!bg-zinc-400" style={{ top: 0 }} />
       <span className="text-xl font-bold" style={{ color: scoreColor }}>{data.composite}</span>
-      <span className="text-[9px] text-zinc-300 mt-0.5">{data.label}</span>
-      <Handle type="source" position={Position.Bottom} className="!bg-zinc-600" style={{ bottom: 0 }} />
+      <span className="text-xs text-zinc-300 mt-0.5">{data.label}</span>
+      <Handle type="source" position={Position.Bottom} className="!bg-zinc-400" style={{ bottom: 0 }} />
     </div>
   );
 }
