@@ -87,7 +87,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6 space-y-6">
+    <div className="flex-1 overflow-auto p-4 space-y-4 md:p-6 md:space-y-6">
       {/* 0. Daily Briefing */}
       {report.briefing?.trim() && (
         <div className="p-5 rounded border border-zinc-700 bg-zinc-900/60">
@@ -103,14 +103,14 @@ export function ReportPanel({ data }: { data: DashboardData }) {
       )}
 
       {/* 1. End State Banner */}
-      <div className={`p-5 rounded border ${endColor.replace("bg-", "border-")} ${endColor.replace("bg-", "bg-")}/10`}>
-        <div className="flex items-center justify-between">
+      <div className={`p-4 md:p-5 rounded border ${endColor.replace("bg-", "border-")} ${endColor.replace("bg-", "bg-")}/10`}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <span className="text-xs font-mono text-zinc-500">END STATE ASSESSMENT</span>
-            <h2 className={`text-xl font-mono font-bold mt-1 ${endColor.replace("bg-", "text-")}`}>
+            <span className="text-[10px] md:text-xs font-mono text-zinc-500">END STATE ASSESSMENT</span>
+            <h2 className={`text-lg md:text-xl font-mono font-bold mt-1 ${endColor.replace("bg-", "text-")}`}>
               {endState.toUpperCase()}
             </h2>
-            <p className="text-xs text-zinc-400 mt-1">{report.synthesis?.slice(0, 120)}...</p>
+            <p className="text-[10px] md:text-xs text-zinc-400 mt-1">{report.synthesis?.slice(0, 120)}...</p>
           </div>
           <div className="flex items-center gap-4">
             <RadialGauge value={confidence} max={100} size={80} color="#f97316" label="Confidence" />
@@ -149,9 +149,9 @@ export function ReportPanel({ data }: { data: DashboardData }) {
       <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50">
         <h3 className="text-xs font-mono text-zinc-500 mb-3">SITUATION SUMMARY</h3>
         <p className="text-xs text-zinc-400 leading-relaxed max-w-none">{report.synthesis}</p>
-        <div className="flex items-center gap-4 mt-3 flex-wrap">
+        <div className="flex items-center gap-3 md:gap-4 mt-3 flex-wrap">
           <div>
-            <span className="text-xs font-mono text-zinc-600 block mb-1">COMPOSITE TREND</span>
+            <span className="text-[10px] md:text-xs font-mono text-zinc-600 block mb-1">COMPOSITE TREND</span>
             <Sparkline data={trajectoryDays.map((d) => d.score)} width={140} height={28} color="auto" />
           </div>
           <div>
@@ -248,8 +248,8 @@ export function ReportPanel({ data }: { data: DashboardData }) {
 
       {/* 6. End State Trajectory (7-day) */}
       <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50">
-        <h3 className="text-xs font-mono text-zinc-500 mb-3">7-DAY TRAJECTORY</h3>
-        <div className="flex items-center gap-2">
+        <h3 className="text-[10px] md:text-xs font-mono text-zinc-500 mb-3">7-DAY TRAJECTORY</h3>
+        <div className="flex items-center gap-1 md:gap-2 overflow-x-auto pb-1">
           {trajectoryDays.map((day, i) => {
             const dayColor = compositeColor(day.score);
             const isToday = i === trajectoryDays.length - 1;

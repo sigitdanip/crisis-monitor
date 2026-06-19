@@ -51,11 +51,11 @@ export function AlertsPanel({ data }: { data: DashboardData }) {
   }, [filtered]);
 
   return (
-    <div className="flex-1 overflow-auto p-6">
+    <div className="flex-1 overflow-auto p-4 md:p-6">
       {/* Filters + Donut header */}
-      <div className="flex items-start justify-between mb-4 flex-wrap gap-4">
+      <div className="flex items-start justify-between mb-3 md:mb-4 flex-wrap gap-3 md:gap-4">
         <div>
-          <h2 className="text-sm font-mono text-zinc-400 mb-2">
+          <h2 className="text-xs md:text-sm font-mono text-zinc-400 mb-1.5 md:mb-2">
             ALERTS <span className="text-zinc-600">({filtered.length})</span>
           </h2>
           <div className="flex items-center gap-2 text-[10px] font-mono">

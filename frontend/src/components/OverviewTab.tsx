@@ -11,15 +11,15 @@ function StoryPopup({ story, onClose }: { story: StoryItem; onClose: () => void 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 overflow-y-auto" onClick={onClose}>
       <div
-        className="bg-zinc-900 border border-zinc-700 rounded-lg p-6 max-w-3xl w-full mx-4 my-8 shadow-2xl max-h-[90vh] overflow-y-auto"
+        className="bg-zinc-900 border border-zinc-700 rounded-lg p-4 md:p-6 max-w-3xl w-full mx-2 my-4 md:mx-4 md:my-8 shadow-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-mono text-zinc-500 uppercase tracking-wider">{story.category}</span>
+        <div className="flex items-center justify-between mb-2 md:mb-3">
+          <span className="text-xs font-mono text-zinc-500 uppercase tracking-wider">{story.category}</span>
           <button type="button" onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-xl leading-none">&times;</button>
         </div>
-        <h2 className="text-xl font-bold text-zinc-100 mb-3">{story.title}</h2>
-        <p className="text-base text-zinc-400 leading-relaxed mb-4">{story.body}</p>
+        <h2 className="text-lg md:text-xl font-bold text-zinc-100 mb-2 md:mb-3">{story.title}</h2>
+        <p className="text-sm md:text-base text-zinc-400 leading-relaxed mb-3 md:mb-4">{story.body}</p>
         {story.source && (
           <p className="text-xs text-zinc-600 font-mono">Source: {story.source}</p>
         )}
@@ -116,7 +116,7 @@ export function OverviewTab({ data }: { data: DashboardData }) {
   const sparkData = Array.from({ length: 7 }, () => Math.floor(Math.random() * 5));
 
   return (
-    <div className="flex-1 overflow-auto p-6 space-y-6">
+    <div className="flex-1 overflow-auto p-4 space-y-4 md:p-6 md:space-y-6">
       {/* Popup */}
       {popup && <StoryPopup story={popup} onClose={() => setPopup(null)} />}
 

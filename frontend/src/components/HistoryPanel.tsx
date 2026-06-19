@@ -56,11 +56,12 @@ export function HistoryPanel({ data: liveData }: { data: DashboardData }) {
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6 space-y-6">
+    <div className="flex-1 overflow-auto p-4 space-y-4 md:p-6 md:space-y-6">
       {/* Composite Score Timeline */}
-      <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50">
-        <h3 className="text-xs font-mono text-zinc-500 mb-3">90-DAY COMPOSITE SCORE</h3>
-        <div className="flex items-end gap-1 h-24">
+      <div className="p-3 md:p-4 rounded border border-zinc-800 bg-zinc-900/50">
+        <h3 className="text-[10px] md:text-xs font-mono text-zinc-500 mb-2 md:mb-3">90-DAY COMPOSITE SCORE</h3>
+        <div className="overflow-x-auto">
+        <div className="flex items-end gap-px md:gap-1 h-24 min-w-[360px]">
           {compositeData.map((score, i) => {
             const hPct = (score / 16) * 100;
             const color = score <= 4 ? "bg-emerald-500/60" : score <= 8 ? "bg-amber-500/60" : score <= 12 ? "bg-orange-500/60" : "bg-red-500/60";
@@ -74,15 +75,16 @@ export function HistoryPanel({ data: liveData }: { data: DashboardData }) {
             );
           })}
         </div>
-        <div className="flex justify-between text-xs font-mono text-zinc-600 mt-1">
+        </div>
+        <div className="flex justify-between text-[10px] md:text-xs font-mono text-zinc-600 mt-1">
           <span>90d ago</span>
           <span>Today</span>
         </div>
       </div>
 
       {/* Dot Status Heatmap */}
-      <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50 overflow-x-auto">
-        <h3 className="text-xs font-mono text-zinc-500 mb-3">DOT STATUS HEATMAP (30D)</h3>
+      <div className="p-3 md:p-4 rounded border border-zinc-800 bg-zinc-900/50 overflow-x-auto">
+        <h3 className="text-[10px] md:text-xs font-mono text-zinc-500 mb-2 md:mb-3">DOT STATUS HEATMAP (30D)</h3>
         <Heatmap
           data={heatmapData.data}
           xLabels={heatmapData.xLabels}
@@ -92,12 +94,12 @@ export function HistoryPanel({ data: liveData }: { data: DashboardData }) {
       </div>
 
       {/* Past Reports List */}
-      <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50">
-        <h3 className="text-xs font-mono text-zinc-500 mb-3">PAST REPORTS ({history.length})</h3>
+      <div className="p-3 md:p-4 rounded border border-zinc-800 bg-zinc-900/50">
+        <h3 className="text-[10px] md:text-xs font-mono text-zinc-500 mb-2 md:mb-3">PAST REPORTS ({history.length})</h3>
         <div className="space-y-1 max-h-64 overflow-y-auto">
           {history.slice(0, 30).map((r, i) => (
-            <div key={i} className="flex items-center gap-3 px-2 py-1.5 rounded bg-zinc-900/40 text-xs font-mono">
-              <span className="text-zinc-600 w-20">{r.date}</span>
+            <div key={i} className="flex items-center gap-2 md:gap-3 px-2 py-1.5 rounded bg-zinc-900/40 text-[10px] md:text-xs font-mono">
+              <span className="text-zinc-600 w-16 md:w-20 truncate">{r.date}</span>
               <span className={`px-1.5 py-0.5 rounded ${
                 r.end_state === "containment" ? "bg-emerald-900/40 text-emerald-400" :
                 r.end_state === "fragmented" ? "bg-amber-900/40 text-amber-400" :

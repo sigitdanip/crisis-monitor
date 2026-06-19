@@ -20,7 +20,7 @@ export function IndicatorCard({ indicator }: { indicator: Indicator }) {
         <span className={`w-1.5 h-1.5 rounded-full ml-1.5 mt-0.5 shrink-0 ${c.dot}`} />
       </div>
 
-      <div className="text-lg font-mono font-bold tabular-nums text-zinc-100">
+      <div className="text-base md:text-lg font-mono font-bold tabular-nums text-zinc-100">
         {value.toFixed(1)}
         <span className="text-xs text-zinc-600 ml-1 font-normal">{indicator.unit}</span>
       </div>

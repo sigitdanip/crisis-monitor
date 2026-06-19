@@ -41,9 +41,9 @@ export function IndicatorsPanel({ data }: { data: DashboardData }) {
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-mono text-zinc-400">
+    <div className="flex-1 overflow-auto p-4 md:p-6">
+      <div className="flex items-center justify-between mb-3 md:mb-4">
+        <h2 className="text-xs md:text-sm font-mono text-zinc-400">
           INDICATORS <span className="text-zinc-600">({categories.length} categories)</span>
         </h2>
         <button
@@ -66,7 +66,7 @@ export function IndicatorsPanel({ data }: { data: DashboardData }) {
               <button
                 type="button"
                 onClick={() => toggleCat(cat)}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-zinc-900/50 transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-2 md:gap-3 md:px-4 md:py-2.5 text-left hover:bg-zinc-900/50 transition-colors flex-wrap"
               >
                 <span className="text-xs font-mono text-zinc-300 flex-1">
                   {CATEGORY_NAMES[cat] ?? cat}

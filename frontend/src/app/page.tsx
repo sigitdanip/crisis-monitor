@@ -42,7 +42,7 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-x-hidden">
         <Header compositeScore={0} lastUpdated={null} />
         <div className="flex-1 flex items-center justify-center">
           <span className="text-sm font-mono text-zinc-600 animate-pulse">
@@ -55,7 +55,7 @@ export default function Home() {
 
   if (error) {
     return (
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-x-hidden">
         <Header compositeScore={0} lastUpdated={null} />
         <div className="flex-1 flex items-center justify-center flex-col gap-2">
           <span className="text-sm font-mono text-red-400">Failed to load dashboard</span>
@@ -75,7 +75,7 @@ export default function Home() {
   const lastUpdated = data.report?.created_at ?? null;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex-1 flex flex-col min-h-0 overflow-x-hidden">
       <Header
         compositeScore={data.report?.composite_score ?? 0}
         lastUpdated={lastUpdated}

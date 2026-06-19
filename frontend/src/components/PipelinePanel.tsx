@@ -194,6 +194,15 @@ export function PipelinePanel() {
   const [status, setStatus] = useState<PipelineStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // ponytail: detect mobile viewport for horizontal scrolling
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   const layout = buildLayout(status ?? { nodes: [], edges: [], last_run: null, total_duration_ms: 0, success_count: 0 });
   const [nodes, setNodes, onNodesChange] = useNodesState(layout.nodes as any);
@@ -232,32 +241,34 @@ export function PipelinePanel() {
   return (
     <div className="flex-1 flex flex-col">
       {/* Pipeline Graph */}
-      <div className="flex-1 relative">
-        {error && (
-          <div className="absolute top-2 left-2 z-10 bg-red-900/80 text-red-300 text-[10px] font-mono px-2 py-1 rounded">
-            {error}
-          </div>
-        )}
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.3 }}
-          minZoom={0.4}
-          maxZoom={2}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background color="#27272a" gap={20} />
-          <Controls className="!bg-zinc-900 !border-zinc-700 !fill-zinc-400" />
-          <MiniMap
-            nodeColor="#27272a"
-            maskColor="rgba(9, 9, 11, 0.7)"
-            className="!bg-zinc-900 !border-zinc-700"
-          />
-        </ReactFlow>
+      <div className={`flex-1${isMobile ? " overflow-x-auto overflow-y-hidden" : ""}`}>
+        <div className={`h-full relative${isMobile ? " min-w-[1550px]" : ""}`}>
+          {error && (
+            <div className="absolute top-2 left-2 z-10 bg-red-900/80 text-red-300 text-[10px] font-mono px-2 py-1 rounded">
+              {error}
+            </div>
+          )}
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypes}
+            fitView={!isMobile}
+            fitViewOptions={{ padding: 0.3 }}
+            minZoom={0.4}
+            maxZoom={2}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color="#27272a" gap={20} />
+            <Controls className="!bg-zinc-900 !border-zinc-700 !fill-zinc-400" />
+            <MiniMap
+              nodeColor="#27272a"
+              maskColor="rgba(9, 9, 11, 0.7)"
+              className="!bg-zinc-900 !border-zinc-700"
+            />
+          </ReactFlow>
+        </div>
       </div>
 
       {/* Footer Bar */}

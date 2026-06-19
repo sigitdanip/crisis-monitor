@@ -40,9 +40,9 @@ export function DotsPanel({ data }: DotsPanelProps) {
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-mono text-zinc-400">
+    <div className="flex-1 overflow-auto p-4 md:p-6">
+      <div className="flex items-center justify-between mb-3 md:mb-4">
+        <h2 className="text-xs md:text-sm font-mono text-zinc-400">
           DIAGNOSTIC PANELS <span className="text-zinc-600">({dots.length})</span>
         </h2>
         <button

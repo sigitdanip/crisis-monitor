@@ -52,7 +52,7 @@ export function DotCard({ dot, expanded, onToggle, indicators: allIndicators, pa
       <button
         type="button"
         onClick={onToggle}
-        className="w-full px-4 py-3 text-left hover:bg-zinc-900/50 transition-colors"
+        className="w-full px-3 py-2.5 md:px-4 md:py-3 text-left hover:bg-zinc-900/50 transition-colors"
       >
         <div className="flex items-center gap-3">
           <span className="text-xs font-mono text-zinc-600 w-8">DOT {dot.dot_number}</span>
