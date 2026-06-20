@@ -5,7 +5,7 @@ pathways (A/B/C/D) are active.
 """
 import json
 from typing import Dict, Any
-from src.agent.llm import get_llm, extract_json
+from src.agent.llm import get_llm, extract_json, get_llm_content
 
 SYNTHESIZER_PROMPT = """You are a crisis pathway synthesis analyst. Your job is to connect the dots across all 9 crisis indicators and determine which of 4 escalation pathways are active.
 
@@ -85,7 +85,7 @@ async def synthesize_pathways(
         interpretation=composite["interpretation"],
     )
     resp = await llm.ainvoke(prompt)
-    result = extract_json(resp.content)
+    result = extract_json(get_llm_content(resp))
     if not result:
         return _fallback_pathways(composite)
     return result

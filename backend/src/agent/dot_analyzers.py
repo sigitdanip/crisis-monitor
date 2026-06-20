@@ -7,9 +7,12 @@ sources is a brief paragraph (max 100 words) citing specific indicators,
 news headlines, and data points that informed the assessment.
 """
 import json
+import logging
 from typing import Dict, Any, List
-from src.agent.llm import get_llm, extract_json
+from src.agent.llm import get_llm, extract_json, get_llm_content
 from src.agent.indicator_narrator import narrate_all, sources_narrative, sources_for_dot
+
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # Agent 1: GEOPOLITICAL — Dots 1 (NATO) + 2 (Hormuz/Energy)
@@ -72,7 +75,7 @@ async def analyze_geopolitical(
         news_json=json.dumps(news or [], indent=2),
     )
     resp = await llm.ainvoke(prompt)
-    result = extract_json(resp.content)
+    result = extract_json(get_llm_content(resp))
     return result if result else _fallback("geopolitical", indicators)
 
 
@@ -119,6 +122,7 @@ Rules:
 - Dot 3 status: "critical" if FAO spiking AND grains surging; "active" if either
 - Dot 5 status: "critical" if CDS doubling in any G20; "active" if BTP-Bund > 300 or JGB > 2.5%
 - sources: write a concise paragraph naming the specific indicators, their current values, and data origins that most drove your assessment. Cite news headlines by topic when they influenced the judgment.
+- Indicators with numeric values and a status (e.g. "status: normal") have live data — never call them unavailable/N/A.
 - Only use information present in the data provided"""
 
 
@@ -137,8 +141,12 @@ async def analyze_food_debt(
         news_json=json.dumps(news or [], indent=2),
     )
     resp = await llm.ainvoke(prompt)
-    result = extract_json(resp.content)
-    return result if result else _fallback("food_debt", indicators)
+    content = get_llm_content(resp)
+    result = extract_json(content)
+    if not result:
+        logger.warning("Agent 2 (food_debt) extract_json failed on %d chars: %.300s", len(content), content)
+        return _fallback("food_debt", indicators)
+    return result
 
 
 # ============================================================
@@ -185,6 +193,7 @@ Rules:
 - EM status: "critical" if 3+ currencies breaching; "active" if 1-2 breaching
 - Use VIX, MOVE, VVIX, SOFR-OIS, cross-currency basis for credit assessment
 - sources: write a concise paragraph naming the specific indicators, their current values, and data origins that most drove your assessment. Cite news headlines by topic when they influenced the judgment.
+- Indicators with numeric values and a status (e.g. "status: normal") have live data — never call them unavailable/N/A.
 - Only use information present in the data provided"""
 
 
@@ -203,8 +212,12 @@ async def analyze_financial_em(
         news_json=json.dumps(news or [], indent=2),
     )
     resp = await llm.ainvoke(prompt)
-    result = extract_json(resp.content)
-    return result if result else _fallback("financial_em", indicators)
+    content = get_llm_content(resp)
+    result = extract_json(content)
+    if not result:
+        logger.warning("Agent 3 (financial_em) extract_json failed on %d chars: %.300s", len(content), content)
+        return _fallback("financial_em", indicators)
+    return result
 
 
 # ============================================================
@@ -277,7 +290,7 @@ async def analyze_china_political(
         news_json=json.dumps(news or [], indent=2),
     )
     resp = await llm.ainvoke(prompt)
-    result = extract_json(resp.content)
+    result = extract_json(get_llm_content(resp))
     return result if result else _fallback("china_political", indicators)
 
 
@@ -337,7 +350,7 @@ async def analyze_health(
         news_json=json.dumps(news or [], indent=2),
     )
     resp = await llm.ainvoke(prompt)
-    result = extract_json(resp.content)
+    result = extract_json(get_llm_content(resp))
     return result if result else _fallback("health", indicators)
 
 
@@ -352,7 +365,7 @@ def _sources_text_for_dot(dot_key: str, indicators: Dict[str, Any]) -> str:
     a 1-2 sentence attribution from the indicator registry.
     Returns empty string when no indicators are mapped to the dot.
     """
-    from src.agent.indicator_narrator import DOT_INDICATORS, INDICATOR_META
+    from src.agent.indicator_narrator import DOT_INDICATORS, INDICATOR_META, _is_news_flag
 
     slugs = DOT_INDICATORS.get(dot_key, [])
     if not slugs:
@@ -366,13 +379,18 @@ def _sources_text_for_dot(dot_key: str, indicators: Dict[str, Any]) -> str:
         src = meta.get("source", "data feed")
         sources_set.add(src)
         value = indicators.get(slug)
-        if value is not None:
+        if _is_news_flag(value):
+            # News-derived flag: show narrative instead of numeric value
+            narrative = value.get("narrative", "(no news)")
+            narrative_short = narrative[:200]
+            parts.append(f"{name} (news: {narrative_short})")
+        elif value is not None:
             if isinstance(value, float):
-                parts.append(f"{name} at {value:.1f}")
-            elif isinstance(value, int) and value > 0:
-                parts.append(f"{name} flagged")
+                parts.append(f"{name} = {value:.1f}")
+            elif isinstance(value, int):
+                parts.append(f"{name} = {value}")
             else:
-                parts.append(f"{name} normal")
+                parts.append(f"{name} = {value}")
         else:
             parts.append(f"{name} (unavailable)")
 
@@ -382,6 +400,44 @@ def _sources_text_for_dot(dot_key: str, indicators: Dict[str, Any]) -> str:
     sources_str = ", ".join(parts)
     src_list = ", ".join(sorted(sources_set))
     return f"Assessment based on: {sources_str}. Sourced from {src_list}."
+
+
+def _build_key_signals(dot_key: str, indicators: Dict[str, Any]) -> list:
+    """Build meaningful key_signals from real indicator data instead of 'data unavailable'.
+
+    Reads indicator values and metadata to produce a short list of descriptive
+    signal strings — one per indicator mapped to the dot.
+    """
+    from src.agent.indicator_narrator import DOT_INDICATORS, INDICATOR_META, _is_news_flag, _extract_scalar, _assess
+
+    slugs = DOT_INDICATORS.get(dot_key, [])
+    if not slugs:
+        return ["no indicator data mapped to this dot"]
+
+    signals = []
+    for slug in slugs:
+        meta = INDICATOR_META.get(slug, {})
+        name = meta.get("name", slug)
+        value = indicators.get(slug)
+        if value is None:
+            signals.append(f"{name}: unavailable")
+            continue
+        if _is_news_flag(value):
+            narrative = value.get("narrative", "")[:100]
+            signals.append(f"{name}: {narrative}" if narrative else f"{name}: news flag present (no narrative)")
+        else:
+            scalar = _extract_scalar(value)
+            status = _assess(value, meta)
+            unit = meta.get("unit", "")
+            if isinstance(scalar, float):
+                signals.append(f"{name} = {scalar:.1f} {unit} ({status})")
+            elif isinstance(scalar, int):
+                signals.append(f"{name} = {scalar} {unit} ({status})")
+            elif scalar is not None:
+                signals.append(f"{name} = {scalar} {unit} ({status})")
+            else:
+                signals.append(f"{name}: data unavailable")
+    return signals
 
 
 def _fallback(agent_name: str, indicators: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -397,35 +453,39 @@ def _fallback(agent_name: str, indicators: Dict[str, Any] = None) -> Dict[str, A
         "key_signals": ["data unavailable"],
     }
 
+    def build_dot(dot_key: str) -> dict:
+        """Build a dot dict with real key_signals from indicator data."""
+        return {**base, "key_signals": _build_key_signals(dot_key, indicators)}
+
     def src(dot_key: str) -> str:
         """Get sources text paragraph for a dot from indicator metadata."""
         return _sources_text_for_dot(dot_key, indicators)
 
     if agent_name == "geopolitical":
         return {
-            "dot_1": {**base, "nato_outlook": "unified", "nato_confidence": 0.5, "sources": src("dot_1")},
-            "dot_2": {**base, "hormuz_risk": "low", "energy_price_outlook": "stable", "sources": src("dot_2")},
+            "dot_1": {**build_dot("dot_1"), "nato_outlook": "unified", "nato_confidence": 0.5, "sources": src("dot_1")},
+            "dot_2": {**build_dot("dot_2"), "hormuz_risk": "low", "energy_price_outlook": "stable", "sources": src("dot_2")},
         }
     if agent_name == "food_debt":
         return {
-            "dot_3": {**base, "fao_trend": "stable", "grain_price_risk": "low", "sources": src("dot_3")},
-            "dot_5": {**base, "most_vulnerable": "none", "contagion_risk": "low", "sources": src("dot_5")},
+            "dot_3": {**build_dot("dot_3"), "fao_trend": "stable", "grain_price_risk": "low", "sources": src("dot_3")},
+            "dot_5": {**build_dot("dot_5"), "most_vulnerable": "none", "contagion_risk": "low", "sources": src("dot_5")},
         }
     if agent_name == "financial_em":
         return {
-            "dot_4": {**base, "credit_spread_outlook": "stable", "volatility_regime": "low", "sources": src("dot_4")},
-            "em_currency": {**base, "currencies_under_pressure": [], "contagion_risk": "low", "sources": src("em_currency")},
+            "dot_4": {**build_dot("dot_4"), "credit_spread_outlook": "stable", "volatility_regime": "low", "sources": src("dot_4")},
+            "em_currency": {**build_dot("em_currency"), "currencies_under_pressure": [], "contagion_risk": "low", "sources": src("em_currency")},
         }
     if agent_name == "china_political":
         return {
-            "dot_6": {**base, "pmi_outlook": "expanding", "property_sector_risk": "low", "sources": src("dot_6")},
-            "dot_7": {**base, "protest_scale": "isolated", "government_stability": "stable", "sources": src("dot_7")},
-            "dot_8": {**base, "shipping_risk": "low", "trade_chokepoint_status": "open", "sources": src("dot_8")},
+            "dot_6": {**build_dot("dot_6"), "pmi_outlook": "expanding", "property_sector_risk": "low", "sources": src("dot_6")},
+            "dot_7": {**build_dot("dot_7"), "protest_scale": "isolated", "government_stability": "stable", "sources": src("dot_7")},
+            "dot_8": {**build_dot("dot_8"), "shipping_risk": "low", "trade_chokepoint_status": "open", "sources": src("dot_8")},
         }
     # health
     return {
         "dot_9": {
-            **base,
+            **build_dot("dot_9"),
             "who_risk_level": "low",
             "human_transmission": "none",
             "geographic_spread": "localized",

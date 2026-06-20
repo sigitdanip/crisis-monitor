@@ -1,6 +1,6 @@
 """
 Credit spread fetchers via FRED API.
-Indicators: US IG OAS, US HY OAS.
+Indicators: US IG OAS, US HY OAS, BTP-Bund Spread (Italy 10Y - Germany 10Y).
 Requires FRED_API_KEY env var. Graceful degradation if missing.
 """
 import logging
@@ -25,6 +25,12 @@ SERIES: dict[str, dict[str, str]] = {
         "unit": "bps",
         "trigger_level": ">600 bps",
     },
+}
+
+# BTP-Bund Spread: Italy 10Y - Germany 10Y (in bps, via FRED)
+BTP_SERIES = {
+    "Italy 10Y": "IRLTLT01ITM156N",
+    "Germany 10Y": "IRLTLT01DEM156N",
 }
 
 
@@ -67,6 +73,53 @@ def _fetch_one(
         return None
 
 
+def _fetch_btp_bund(client: httpx.Client, api_key: str) -> dict | None:
+    """Fetch BTP-Bund spread = Italy 10Y - Germany 10Y via FRED."""
+    try:
+        values = {}
+        for name, series_id in BTP_SERIES.items():
+            r = client.get(
+                FRED_BASE,
+                params={
+                    "series_id": series_id,
+                    "api_key": api_key,
+                    "file_type": "json",
+                    "sort_order": "desc",
+                    "limit": 1,
+                },
+                timeout=15.0,
+            )
+            r.raise_for_status()
+            data = r.json()
+            obs = data.get("observations", [])
+            if not obs:
+                logger.warning("No FRED observations for %s (%s)", name, series_id)
+                return None
+            value_str = obs[0].get("value", "")
+            if not value_str or value_str == ".":
+                return None
+            values[name] = float(value_str)
+
+        italy = values.get("Italy 10Y")
+        germany = values.get("Germany 10Y")
+        if italy is None or germany is None:
+            return None
+        # Spread in bps: both FRED series are already in percent; difference * 100
+        spread = round((italy - germany) * 100, 1)
+        return {
+            "name": "BTP-Bund Spread",
+            "category": "Debt",
+            "value": spread,
+            "unit": "bps",
+            "status": "normal",
+            "trigger_level": ">250 bps",
+            "source": "FRED:IRLTLT01ITM156N/IRLTLT01DEM156N",
+        }
+    except Exception:
+        logger.exception("Failed to compute BTP-Bund spread")
+        return None
+
+
 def fetch_all_credit() -> list[dict]:
     """Fetch credit spread indicators via FRED. Returns partial on failure."""
     api_key = os.environ.get("FRED_API_KEY")
@@ -80,7 +133,11 @@ def fetch_all_credit() -> list[dict]:
             result = _fetch_one(client, name, info, api_key)
             if result:
                 results.append(result)
-    logger.info("Fetched %d/%d credit indicators", len(results), len(SERIES))
+        # BTP-Bund spread
+        btp = _fetch_btp_bund(client, api_key)
+        if btp:
+            results.append(btp)
+    logger.info("Fetched %d/%d credit indicators", len(results), len(SERIES) + 1)
     return results
 
 

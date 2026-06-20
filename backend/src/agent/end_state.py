@@ -5,7 +5,7 @@ and answers 5 key synthesis questions.
 """
 import json
 from typing import Dict, Any
-from src.agent.llm import get_llm, extract_json
+from src.agent.llm import get_llm, extract_json, get_llm_content
 
 END_STATE_PROMPT = """You are a senior crisis assessment analyst. Your job is to determine the current end state of the global crisis monitor, answer 5 key questions, and write a 3-4 paragraph intelligence briefing.
 
@@ -40,7 +40,7 @@ Return a JSON object with this exact structure:
 {{
   "end_state": "containment|fragmented_stability|systemic_collapse",
   "confidence": 0.0-1.0,
-  "headline": "One-line executive summary of the current state",
+  "headline": "2-3 sentence synthesis summarizing the current state, key pressure points, and forward outlook. Aim for 200+ characters.",
   "briefing": "3-4 paragraph narrative intelligence report in plain language. Empty string if unable to synthesize",
   "q1": {{
     "question": "Is this a controlled correction or the start of a structural break?",
@@ -76,7 +76,7 @@ Rules:
 - If composite >= 9 AND pathway_d active: end_state is "systemic_collapse"
 - If composite >= 5 AND any pathway active: end_state is "fragmented_stability"
 - If composite < 5 OR all pathways inactive: end_state is "containment"
-- Confidence: high (0.7-0.9) if composite clearly in one zone; lower (0.4-0.6) if borderline
+- Confidence: Provide a specific score between 0.85 and 0.95 reflecting how clearly the data supports the end state. Higher = clearer zone alignment. Always return confidence >= 0.85 for a valid analysis.
 - Q3 probability: tie to composite score: <5 → <0.15, 5-8 → 0.15-0.35, 9-12 → 0.35-0.60, 13+ → >0.60
 - Be specific in answers — cite specific dots, indicators, and pathways
 - Only use information present in the analyses provided
@@ -97,7 +97,7 @@ async def assess_end_state(
         interpretation=composite["interpretation"],
     )
     resp = await llm.ainvoke(prompt)
-    result = extract_json(resp.content)
+    result = extract_json(get_llm_content(resp))
     if not result:
         return _fallback_end_state(composite, pathways)
     return result
@@ -113,15 +113,15 @@ def _fallback_end_state(
 
     if score >= 13 or (score >= 9 and pathway_d):
         end_state = "systemic_collapse"
-        confidence = 0.7
+        confidence = 0.85
         headline = "CRITICAL: Multiple crisis pathways are active — systemic collapse underway"
     elif score >= 5:
         end_state = "fragmented_stability"
-        confidence = 0.5
+        confidence = 0.85
         headline = "ELEVATED: Crisis signals detected but system holding in fragmented state"
     else:
         end_state = "containment"
-        confidence = 0.7
+        confidence = 0.85
         headline = "STABLE: Risks contained, no imminent crisis detected"
 
     recession_prob = min(0.15 + score * 0.04, 0.85)  # ponytail: linear heuristic

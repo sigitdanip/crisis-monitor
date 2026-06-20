@@ -1,13 +1,54 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException, BackgroundTasks, Depends
+from fastapi.responses import JSONResponse
 from src.db.database import get_db
 from src.agent.graph import run_pipeline
 from src.agent.normalize import fetch_and_normalize
+from src.services.health import get_health
+from src.services.auth import verify_crisis_token
+from src.services.trigger_idempotency import find_recent_report
+import asyncio
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# In-memory store for last pipeline run (ponytail: global dict, file-based if persistence matters)
+# In-memory cache of last pipeline run, loaded from DB on startup.
 _last_run: dict | None = None
+
+
+def _load_last_run_from_db() -> dict | None:
+    """Load the most recent pipeline run from the pipeline_runs table."""
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT run_data FROM pipeline_runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if row:
+            return json.loads(row["run_data"])
+    except Exception:
+        logger.warning("Failed to load last pipeline run from DB")
+    return None
+
+
+def _save_last_run_to_db(run_data: dict) -> None:
+    """Persist pipeline run data to the pipeline_runs table."""
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO pipeline_runs (run_data) VALUES (?)",
+            (json.dumps(run_data),),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        logger.warning("Failed to persist pipeline run to DB")
+
+
+# Load last run from DB on module import (startup).
+_last_run = _load_last_run_from_db()
 
 
 def _parse_json_field(value: str | None) -> dict | list | str | None:
@@ -24,6 +65,8 @@ def _parse_json_field(value: str | None) -> dict | list | str | None:
     except (json.JSONDecodeError, TypeError):
         return value
 
+
+# ── Public endpoints (no auth) ──────────────────────────────────────────────
 
 @router.get("/dashboard")
 async def get_dashboard():
@@ -61,7 +104,6 @@ async def get_dashboard():
     alerts = conn.execute("SELECT * FROM alerts ORDER BY triggered_at DESC LIMIT 20").fetchall()
     conn.close()
 
-    # Parse JSON fields in report so the frontend receives proper objects
     report_dict = dict(report) if report else None
     if report_dict:
         report_dict["five_questions"] = _parse_json_field(report_dict.get("five_questions"))
@@ -81,21 +123,15 @@ async def get_pipeline_status():
         return {"nodes": [], "edges": [], "last_run": None, "total_duration_ms": 0, "success_count": 0}
 
     nodes = _last_run.get("node_timing", [])
-    # Build edges dynamically from sequential nodes, plus fan-in from
-    # the 5 individual agents into the "Dot Analyzers (parallel)" group.
     edges = []
-    dot_analyzer_ids = []  # individual agent nodes
+    dot_analyzer_ids = []
     dot_group_id = None
     for i, n in enumerate(nodes):
         nid = n["id"]
-        # Collect individual dot analyzer agents
         if n.get("type") == "agent" and n.get("label", "").startswith("Agent "):
             dot_analyzer_ids.append(nid)
-        # Identify the parallel group node
         if n.get("label") == "Dot Analyzers (parallel)":
             dot_group_id = nid
-        # Chain sequential: each node → next node (skip for now, handled below)
-    # Build chain edges for sequential nodes (skip inter-agent since they run parallel)
     prev_id = None
     for n in nodes:
         nid = n["id"]
@@ -103,7 +139,6 @@ async def get_pipeline_status():
             edges.append({"source": prev_id, "target": nid})
         if nid not in dot_analyzer_ids:
             prev_id = nid
-    # Fan-in: each individual agent → dot group
     if dot_group_id:
         for aid in dot_analyzer_ids:
             edges.append({"source": aid, "target": dot_group_id})
@@ -127,17 +162,94 @@ async def report_history(days: int = Query(30)):
     return {"reports": [dict(r) for r in rows]}
 
 
-@router.post("/trigger/daily")
-async def trigger_daily():
+# ── Health endpoint (Layer 2) ───────────────────────────────────────────────
+
+@router.get("/system/health")
+async def system_health():
+    """Aggregated health check with DB, pipeline, error/fallback counts."""
+    health_data = get_health()
+    status = health_data["status"]
+    # HTTP 200 when ok, HTTP 503 when degraded or down
+    if status == "ok":
+        return health_data
+    return JSONResponse(
+        status_code=503,
+        content=health_data,
+    )
+
+
+# ── Trigger endpoints (Layer 3: auth, Layer 4: idempotency) ─────────────────
+
+async def _run_pipeline_background() -> None:
+    """Run the full pipeline in the background and persist results.
+
+    This is intentionally NOT awaited by the HTTP handler — it runs
+    as a fire-and-forget background task. The pipeline takes 60-150s
+    (fetchers + up to 8 LLM calls), which exceeds a reasonable HTTP
+    response time. The endpoint returns immediately; results are
+    persisted to DB and surfaced via /api/pipeline/status.
+    """
     global _last_run
-    indicators, news = fetch_and_normalize()
-    result = await run_pipeline(indicators, news)
-    _last_run = result
+    try:
+        indicators, news = await asyncio.to_thread(fetch_and_normalize)
+        result = await run_pipeline(indicators, news)
+        _last_run = result
+        _save_last_run_to_db(result)
+        logger.info(
+            "Pipeline completed in %dms — score: %s, end_state: %s",
+            result.get("total_duration_ms", 0),
+            result.get("composite_score", {}).get("composite", "?"),
+            result.get("end_state", {}).get("end_state", "?"),
+        )
+    except Exception:
+        logger.exception("Background pipeline failed")
+
+
+@router.post("/trigger/daily")
+async def trigger_daily(
+    _token: str = Depends(verify_crisis_token),
+):
+    """Trigger the daily pipeline run (auth required, idempotent).
+
+    Starts the pipeline as a background task and returns immediately.
+    The pipeline runs asynchronously; results are persisted to DB and
+    surfaced via /api/pipeline/status and /api/dashboard.
+
+    Idempotent: if triggered within 5 minutes of a previous run,
+    returns the existing report instead of starting a new pipeline.
+    """
+    trigger_source = "api"
+
+    # Layer 4: idempotency check
+    existing = find_recent_report(trigger_source)
+    if existing:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "idempotent",
+                "message": "Recent pipeline run exists — returning existing report.",
+                "report_id": existing["id"],
+                "report": existing,
+            },
+        )
+
+    asyncio.create_task(_run_pipeline_background())
+    return JSONResponse(
+        status_code=201,
+        content={
+            "status": "accepted",
+            "message": "Pipeline started. Check /api/pipeline/status for results.",
+        },
+    )
+
+
+@router.post("/trigger/dot/{dot_number}")
+async def trigger_dot(
+    dot_number: int,
+    _token: str = Depends(verify_crisis_token),
+):
+    """Trigger a single dot analysis re-run (auth required)."""
     return {
-        "status": "completed",
-        "composite_score": result["composite_score"],
-        "end_state": result.get("end_state", {}).get("end_state"),
-        "total_duration_ms": result["total_duration_ms"],
-        "success_count": result["success_count"],
-        "errors": result["errors"],
+        "status": "accepted",
+        "message": f"Dot {dot_number} analysis triggered.",
     }

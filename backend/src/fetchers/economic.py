@@ -1,10 +1,12 @@
 """
 Economic & commodity fetchers: FAO Food Price Index, grain futures, copper, BDI.
-Combines FAO CSV parsing, yfinance for futures, and BDI via Baltic Exchange proxy.
+Combines FAO CSV parsing, yfinance for futures (parallel with 15s timeout),
+and BDI via Baltic Exchange proxy.
 """
 import csv
 import io
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import httpx
@@ -12,11 +14,12 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
+YFINANCE_TIMEOUT = 15
+
 FAO_FPI_URL = (
     "https://fenixservices.fao.org/faostat/static/bulkdownloads/"
     "FAOSTAT_data_6-18-2025.zip"  # ponytail: pinned snapshot; rebuild if monthly breaks
 )
-# Fallback: simpler CSV from FAO World Food Situation page
 FAO_FALLBACK_URL = (
     "https://www.fao.org/worldfoodsituation/foodpricesindex/en/"
 )
@@ -55,7 +58,6 @@ def _fetch_fao_fpi() -> dict[str, Any] | None:
     """Fetch FAO Food Price Index value. Tries direct JSON/CSV endpoints."""
     try:
         with httpx.Client(timeout=20.0) as client:
-            # Try FAO API v2
             r = client.get(
                 "https://fenixservices.fao.org/faostat/api/v1/en/CS/FPP",
                 params={"area": "5000", "item": "22001", "element": "432", "year": "2025"},
@@ -75,22 +77,47 @@ def _fetch_fao_fpi() -> dict[str, Any] | None:
                     "trigger_level": ">10% monthly increase",
                 }
     except Exception:
-        logger.warning("FAO API failed, trying fallback")
-    # ponytail: fallback — return None rather than brittle HTML parse
-    logger.warning("FAO FPI unavailable — both endpoints failed")
+        logger.warning("FAO API primary endpoint failed, trying fallback")
+    # Try fallback: scrape the HTML page
+    try:
+        with httpx.Client(timeout=20.0, follow_redirects=True) as client:
+            r = client.get(
+                FAO_FALLBACK_URL,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            if r.status_code == 200:
+                # ponytail: fragile regex — FAO page structure may change
+                import re
+                match = re.search(r"Food Price Index.*?(\d+\.?\d*)", r.text)
+                if match:
+                    value = float(match.group(1))
+                    if 50 < value < 200:  # sanity check
+                        return {
+                            "name": "FAO Food Price Index",
+                            "category": "Food",
+                            "value": value,
+                            "unit": "index",
+                            "status": "normal",
+                            "trigger_level": ">10% monthly increase",
+                        }
+            if r.status_code != 200:
+                logger.warning("FAO fallback returned HTTP %d", r.status_code)
+            else:
+                logger.info("FAO fallback returned 200 but regex didn't match a value")
+    except Exception:
+        logger.warning("FAO fallback fetch failed")
+    logger.info("FAO FPI unavailable — both endpoints failed")
     return None
 
 
 def _fetch_bdi() -> dict[str, Any] | None:
-    """Fetch Baltic Dry Index. Uses yfinance BDIY as proxy."""
-    # ponytail: BDIY is an ETF proxy for BDI; close enough for monitoring
+    """Fetch Baltic Dry Index. Uses yfinance BDRY as proxy."""
     try:
         tk = yf.Ticker("BDRY")
         data = tk.history(period="5d")
         if data.empty:
             return None
         value = round(float(data["Close"].iloc[-1]), 2)
-        # BDRY is typically ~1/10 of BDI; scale approximate
         return {
             "name": "Baltic Dry Index",
             "category": "Supply Chain",
@@ -105,21 +132,35 @@ def _fetch_bdi() -> dict[str, Any] | None:
 
 
 def fetch_all_economic() -> list[dict[str, Any]]:
-    """Fetch all economic/commodity indicators. Returns partial on failure."""
+    """Fetch all economic/commodity indicators.
+
+    yfinance grain/copper calls run in parallel with per-call 15s timeout.
+    Returns partial on failure.
+    """
     results: list[dict[str, Any]] = []
 
-    # FAO FPI
+    # FAO FPI (fast HTTP call)
     fpi = _fetch_fao_fpi()
     if fpi:
         results.append(fpi)
 
-    # Grain/copper futures via yfinance
-    for name, info in GRAIN_TICKERS.items():
-        r = _fetch_yf_one(name, info)
-        if r:
-            results.append(r)
+    # Parallel yfinance grain/copper fetches
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(_fetch_yf_one, name, info): name
+            for name, info in GRAIN_TICKERS.items()
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                r = future.result(timeout=YFINANCE_TIMEOUT + 1)
+            except Exception:
+                logger.warning("yfinance call timed out or failed for %s", name)
+                r = None
+            if r:
+                results.append(r)
 
-    # BDI
+    # BDI (single yfinance call — not worth parallelizing separately)
     bdi = _fetch_bdi()
     if bdi:
         results.append(bdi)

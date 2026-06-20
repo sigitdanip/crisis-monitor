@@ -2,15 +2,20 @@
 Energy storage & shipping fetchers.
 Indicators: EU gas storage %, US SPR level, TTF gas price, Freightos Baltic Index.
 Sources: GIE AGSI (agsi.gie.eu), EIA, yfinance, Freightos.
+
+All yfinance calls run with a 15s per-call timeout to prevent hangs.
 """
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import httpx
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
+
+YFINANCE_TIMEOUT = 15
 
 AGSI_API = "https://agsi.gie.eu/api"
 EIA_API = "https://api.eia.gov/v2"
@@ -20,7 +25,6 @@ def _fetch_eu_gas_storage() -> dict[str, Any] | None:
     """Fetch EU gas storage fill percentage from GIE AGSI."""
     try:
         with httpx.Client(timeout=15.0) as client:
-            # GIE AGSI has a public API — no key required
             r = client.get(
                 f"{AGSI_API}",
                 params={
@@ -29,12 +33,11 @@ def _fetch_eu_gas_storage() -> dict[str, Any] | None:
                 },
                 headers={"x-key": "anonymous"},
             )
-            # ponytail: GIE changed API, try the data endpoint directly
             if r.status_code != 200:
                 r2 = client.get(
                     f"{AGSI_API}/data",
                     params={
-                        "facilities": "de",  # Germany as proxy for EU
+                        "facilities": "de",
                         "from": "2025-01-01",
                     },
                     timeout=15.0,
@@ -46,7 +49,6 @@ def _fetch_eu_gas_storage() -> dict[str, Any] | None:
             else:
                 data = r.json()
 
-            # ponytail: navigate nested AGSI response structure
             if isinstance(data, dict):
                 last_data = data.get("data", data.get("lastData", data))
                 if isinstance(last_data, list) and last_data:
@@ -61,7 +63,7 @@ def _fetch_eu_gas_storage() -> dict[str, Any] | None:
                         "status": "normal",
                         "trigger_level": "<60% by Aug 1",
                     }
-            logger.warning("AGSI: unexpected response shape")
+            logger.info("AGSI: unexpected response shape — returning None gracefully")
             return None
     except Exception:
         logger.exception("EU gas storage fetch failed")
@@ -80,7 +82,7 @@ def _fetch_us_spr() -> dict[str, Any] | None:
                 f"{EIA_API}/petroleum/stoc/wstk/data/",
                 params={
                     "api_key": api_key,
-                    "facets[series]": "WCSSTUS1",  # Weekly U.S. Ending Stocks of Crude Oil in SPR
+                    "facets[series]": "WCSSTUS1",
                     "sort[0][column]": "period",
                     "sort[0][direction]": "desc",
                     "length": 1,
@@ -100,14 +102,16 @@ def _fetch_us_spr() -> dict[str, Any] | None:
                     "trigger_level": "<350 Mbbl",
                 }
             return None
+    except httpx.HTTPStatusError:
+        logger.warning("US SPR fetch failed — EIA API returned HTTP error (v1 retired)")
+        return None
     except Exception:
-        logger.exception("US SPR fetch failed")
+        logger.warning("US SPR fetch failed")
         return None
 
 
 def _fetch_ttf_gas() -> dict[str, Any] | None:
     """Fetch EU TTF natural gas price via yfinance."""
-    # ponytail: TTF is on ICE, yfinance proxy
     try:
         tk = yf.Ticker("TTF=F")
         data = tk.history(period="5d")
@@ -130,9 +134,7 @@ def _fetch_ttf_gas() -> dict[str, Any] | None:
 def _fetch_fbx() -> dict[str, Any] | None:
     """Fetch Freightos Baltic Index (FBX) — global container freight."""
     try:
-        # ponytail: Freightos has a public tracker; scrape or use ETF proxy
-        # FBX=F ticker not available; use SONAR proxy or skip
-        with httpx.Client(timeout=15.0) as client:
+        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
             r = client.get(
                 "https://fbx.freightos.com/api/ticker",
                 headers={"User-Agent": "Mozilla/5.0"},
@@ -149,9 +151,12 @@ def _fetch_fbx() -> dict[str, Any] | None:
                         "status": "normal",
                         "trigger_level": ">5000 USD/FEU Asia-Europe",
                     }
+            logger.warning("Freightos API returned HTTP %d", r.status_code)
+    except httpx.HTTPStatusError:
+        logger.warning("Freightos API HTTP error")
     except Exception:
-        logger.exception("FBX fetch failed")
-    # ponytail: fallback — ETF proxy (BOAT) loosely tracks container rates
+        logger.warning("FBX fetch failed")
+    # Fallback: ETF proxy (BOAT) loosely tracks container rates
     try:
         tk = yf.Ticker("BOAT")
         data = tk.history(period="5d")
@@ -170,10 +175,24 @@ def _fetch_fbx() -> dict[str, Any] | None:
     return None
 
 
+def _run_with_timeout(fn, timeout: float = YFINANCE_TIMEOUT):
+    """Run a function in a thread with a timeout. Returns result or None."""
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(fn)
+        try:
+            return future.result(timeout=timeout)
+        except Exception:
+            return None
+
+
 def fetch_all_energy_storage() -> list[dict[str, Any]]:
-    """Fetch all energy storage & shipping indicators. Returns partial on failure."""
+    """Fetch all energy storage & shipping indicators.
+
+    yfinance calls run with per-call 15s timeout. Returns partial on failure.
+    """
     results: list[dict[str, Any]] = []
 
+    # HTTP-based fetchers (fast — run sequentially)
     eu = _fetch_eu_gas_storage()
     if eu:
         results.append(eu)
@@ -182,13 +201,21 @@ def fetch_all_energy_storage() -> list[dict[str, Any]]:
     if spr:
         results.append(spr)
 
-    ttf = _fetch_ttf_gas()
-    if ttf:
-        results.append(ttf)
-
-    fbx = _fetch_fbx()
-    if fbx:
-        results.append(fbx)
+    # yfinance-based fetchers (run in parallel with timeout)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(fn): name
+            for fn, name in [(_fetch_ttf_gas, "TTF"), (_fetch_fbx, "FBX")]
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                r = future.result(timeout=YFINANCE_TIMEOUT + 1)
+            except Exception:
+                logger.warning("yfinance call timed out for %s", name)
+                r = None
+            if r:
+                results.append(r)
 
     logger.info("Fetched %d energy storage indicators", len(results))
     return results

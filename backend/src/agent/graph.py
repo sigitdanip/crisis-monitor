@@ -155,7 +155,7 @@ async def node_dot_analyzers(state: CrisisState) -> CrisisState:
         agent_num = i + 1
         if isinstance(result, Exception):
             # Use rule-based fallback when LLM call fails
-            fallback = dot_fallback(name)
+            fallback = dot_fallback(name, indicators)
             merged.update(fallback)
             dur = 0  # no real duration since it failed instantly
             _record_timing(state, f"Agent {agent_num} ({name})", "agent", "fallback", dur,
@@ -241,8 +241,20 @@ async def node_save_to_db(state: CrisisState) -> CrisisState:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         # Save indicator snapshots with full metadata from INDICATOR_META registry
-        from src.agent.indicator_narrator import INDICATOR_META, _assess
+        from src.agent.indicator_narrator import INDICATOR_META, _assess, _is_news_flag, _extract_scalar
         narratives = state.get("indicator_narratives") or {}
+
+        # Build a lookup of news-derived narratives keyed by their base slug
+        # (e.g. news_caixin_pmi → narrative for fallback into caixin_pmi)
+        news_narratives: dict[str, str] = {}
+        for slug, val in state["indicators"].items():
+            if _is_news_flag(val):
+                narrative = val.get("narrative", "")
+                if narrative:
+                    # Strip "news_" prefix to map to the regular indicator slug
+                    base_slug = slug.removeprefix("news_")
+                    news_narratives[base_slug] = narrative
+
         for slug, val in state["indicators"].items():
             if isinstance(val, (int, float, str)):
                 meta = INDICATOR_META.get(slug, {})
@@ -252,6 +264,9 @@ async def node_save_to_db(state: CrisisState) -> CrisisState:
                 trigger = meta.get("trigger", "")
                 status = _assess(val, meta) if meta else "normal"
                 narrative = narratives.get(slug, "")
+                # Fall back to news-derived narrative if LLM narrative is empty
+                if not narrative and slug in news_narratives:
+                    narrative = news_narratives[slug]
                 # Convert empty strings to None for SQLite REAL column compatibility
                 db_val = None if isinstance(val, str) and val == "" else val
                 conn.execute(
@@ -259,6 +274,22 @@ async def node_save_to_db(state: CrisisState) -> CrisisState:
                        (indicator_name, display_name, category, value, unit, status, trigger_level, narrative)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (slug, display_name, category, db_val, unit, status, trigger, narrative),
+                )
+            elif _is_news_flag(val):
+                # Persist news-derived flag indicators to indicator_history
+                meta = INDICATOR_META.get(slug, {})
+                display_name = meta.get("name", slug)
+                category = meta.get("category", "")
+                unit = meta.get("unit", "flag")
+                trigger = meta.get("trigger", "")
+                flag_value = val.get("value", 0)
+                status = _assess(val, meta) if meta else "normal"
+                narrative = val.get("narrative", "")
+                conn.execute(
+                    """INSERT INTO indicator_history
+                       (indicator_name, display_name, category, value, unit, status, trigger_level, narrative)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (slug, display_name, category, flag_value, unit, status, trigger, narrative),
                 )
 
         # Save dot analyses
@@ -305,7 +336,7 @@ async def node_save_to_db(state: CrisisState) -> CrisisState:
                 json.dumps(state["dot_analyses"] or {}),
                 json.dumps(state["pathways"] or {}),
                 end_state.get("end_state", "unknown"),
-                end_state.get("headline", ""),
+                end_state.get("briefing", end_state.get("headline", "")),
                 json.dumps({k: end_state.get(k) for k in ("q1", "q2", "q3", "q4", "q5") if k in end_state}),
                 str(end_state.get("confidence", 0)),
                 state["composite_score"]["composite"] if state["composite_score"] else 0,

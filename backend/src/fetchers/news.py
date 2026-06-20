@@ -29,7 +29,7 @@ def _fetch_newsapi_headlines() -> list[dict[str, Any]]:
     ]
     headlines: list[dict[str, Any]] = []
     try:
-        with httpx.Client(timeout=15.0) as client:
+        with httpx.Client(timeout=8.0) as client:
             for q in queries:
                 try:
                     r = client.get(
@@ -163,8 +163,11 @@ def _fetch_rcp_polls() -> dict[str, Any] | None:
                     "metadata": f"disapprove={disapprove}%",
                 }
             return None
+    except httpx.HTTPStatusError:
+        logger.warning("RCP scrape failed — HTTP %s (anti-bot protection)")
+        return None
     except Exception:
-        logger.exception("RCP scrape failed")
+        logger.warning("RCP scrape failed")
         return None
 
 

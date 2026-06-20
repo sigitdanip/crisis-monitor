@@ -1,16 +1,21 @@
 """
 Market data fetchers using yfinance.
 Indicators: Brent crude, WTI, natural gas, DXY, gold, US 10Y, US 2Y, VIX.
+
+Each yfinance call runs with a 15s per-call timeout via ThreadPoolExecutor
+because yfinance has no built-in timeout and history() can hang 30s+.
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
-# ponytail: global lock — yfinance downloads are sequential per module;
-# parallel fetch across modules via LangGraph is the scaling path.
+# Per-ticker timeout for yfinance calls (seconds).
+YFINANCE_TIMEOUT = 15
+
 TICKERS: dict[str, dict[str, Any]] = {
     "Brent Crude":    {"ticker": "BZ=F",   "category": "Energy",        "unit": "USD/bbl",    "trigger_level": ">100 for 1 week"},
     "WTI Crude":      {"ticker": "CL=F",   "category": "Energy",        "unit": "USD/bbl",    "trigger_level": ">95 for 1 week"},
@@ -49,12 +54,25 @@ def _fetch_one(name: str, info: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def fetch_all_market() -> list[dict[str, Any]]:
-    """Fetch all 8 market indicators. Graceful degradation: returns partial on failure."""
+    """Fetch all 8 market indicators in parallel with per-call 15s timeout.
+
+    Graceful degradation: returns partial on failure or timeout.
+    """
     results: list[dict[str, Any]] = []
-    for name, info in TICKERS.items():
-        result = _fetch_one(name, info)
-        if result:
-            results.append(result)
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {
+            executor.submit(_fetch_one, name, info): name
+            for name, info in TICKERS.items()
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                result = future.result(timeout=YFINANCE_TIMEOUT + 1)
+            except Exception:
+                logger.warning("yfinance call timed out or failed for %s", name)
+                result = None
+            if result:
+                results.append(result)
     logger.info("Fetched %d/%d market indicators", len(results), len(TICKERS))
     return results
 

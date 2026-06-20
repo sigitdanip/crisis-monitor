@@ -33,7 +33,6 @@ INDICATOR_META: Dict[str, Dict[str, Any]] = {
     "cme_grains_monthly_pct": {"name": "CME Grains Change","category": "Food",     "unit": "% MoM",     "trigger": ">10%",   "higher_is_worse": True,  "source": "yfinance (ZC=F, ZS=F, ZW=F)"},
     # China
     "caixin_pmi":        {"name": "Caixin PMI",       "category": "China",         "unit": "index",     "trigger": "<48",    "higher_is_worse": False, "source": "TradingEconomics / Caixin"},
-    "shibor_1w":         {"name": "SHIBOR 1W",        "category": "China",         "unit": "%",         "trigger": ">4.5",   "higher_is_worse": True,  "source": "shibor.org"},
     # Debt
     "btp_bund_spread":   {"name": "BTP-Bund Spread",  "category": "Debt",          "unit": "bps",       "trigger": ">250",   "higher_is_worse": True,  "source": "FRED / TradingEconomics"},
     # Energy storage
@@ -51,6 +50,11 @@ INDICATOR_META: Dict[str, Dict[str, Any]] = {
     "govt_crisis":       {"name": "Govt Crisis",      "category": "Political",     "unit": "flag",      "trigger": "≥1",     "higher_is_worse": True,  "source": "ACLED / News + LLM"},
     "china_property_default": {"name": "China Property Default","category": "China","unit": "flag",     "trigger": "≥1",     "higher_is_worse": True,  "source": "News + LLM"},
     "hormuz_closure":    {"name": "Hormuz Closure",   "category": "Geopolitical",  "unit": "status",    "trigger": "closed", "higher_is_worse": True,  "source": "News + LLM (MarineTraffic/Kpler)"},
+    # News-derived flag indicators (unit='flag', source='newsapi')
+    "news_caixin_pmi":   {"name": "Caixin PMI (News)","category": "China",         "unit": "flag",      "trigger": "≥1",     "higher_is_worse": True,  "source": "newsapi"},
+    "news_eu_gas":       {"name": "EU Gas Storage (News)","category": "Energy",    "unit": "flag",      "trigger": "≥1",     "higher_is_worse": True,  "source": "newsapi"},
+    "news_us_spr":       {"name": "US SPR (News)",    "category": "Energy",        "unit": "flag",      "trigger": "≥1",     "higher_is_worse": True,  "source": "newsapi"},
+    "news_protest_countries": {"name": "Protest Countries (News)","category": "Political","unit": "flag","trigger": "≥1","higher_is_worse": True, "source": "newsapi"},
 }
 
 
@@ -69,6 +73,22 @@ def _parse_trigger_value(trigger_str: str) -> float | None:
         return None
 
 
+def _is_news_flag(value) -> bool:
+    """Return True if the value is a news-derived flag dict with {value, narrative}."""
+    return isinstance(value, dict) and "value" in value and "narrative" in value
+
+
+def _extract_scalar(value):
+    """Extract the scalar value from a potentially nested news-flag dict.
+
+    Returns the scalar (int, float, str, None) for all value types —
+    plain scalars pass through unchanged, news-flag dicts return value['value'].
+    """
+    if _is_news_flag(value):
+        return value["value"]
+    return value
+
+
 def _assess(value, meta: dict) -> str:
     """Return one-word assessment for frontend display.
 
@@ -78,31 +98,33 @@ def _assess(value, meta: dict) -> str:
     ponytail: trigger direction (>/</≥) is the source of truth — it already
     encodes whether exceeding or falling below the threshold is bad.
     """
-    if value is None:
+    # Unwrap news-flag dict to get the scalar for assessment
+    scalar = _extract_scalar(value)
+    if scalar is None:
         return "unknown"
     trigger_str = meta.get("trigger", "")
 
     # Flag indicators: 0 = normal, 1+ = breached
     if meta.get("unit") == "flag":
-        return "breached" if value else "normal"
+        return "breached" if scalar else "normal"
 
     # String values (e.g. hormuz_closure)
-    if isinstance(value, str):
-        if not value:
+    if isinstance(scalar, str):
+        if not scalar:
             return "unknown"
-        return "critical" if value.lower() == "closed" else "normal"
+        return "critical" if scalar.lower() == "closed" else "normal"
 
     # Numeric with trigger parsing
     threshold = _parse_trigger_value(trigger_str)
-    if threshold is not None and isinstance(value, (int, float)):
+    if threshold is not None and isinstance(scalar, (int, float)):
         try:
             op = trigger_str[0] if trigger_str else ""
             if op == ">":
-                return "critical" if value > threshold else "normal"
+                return "critical" if scalar > threshold else "normal"
             elif op == "<":
-                return "critical" if value < threshold else "normal"
+                return "critical" if scalar < threshold else "normal"
             elif op == "≥":
-                return "breached" if value >= threshold else "normal"
+                return "breached" if scalar >= threshold else "normal"
         except (ValueError, TypeError):
             pass
 
@@ -123,12 +145,13 @@ def _trend_arrow(change) -> str:
 def narrate_one(slug: str, value, prev_value=None, meta_override: dict = None) -> str:
     """Narrate a single indicator in one line.
 
-    Format:  Name: value unit (STATUS). Trigger: trigger_desc. Trend: arrow.
-    Example: Brent Crude: $98.40/bbl (ELEVATED). Trigger: >100. Trend: ↑
+    Format for numeric:  Name = value unit (STATUS). Trigger: trigger_desc. Trend: arrow.
+    Format for news flag: Name (news): narrative. Trigger: trigger_desc.
+    Example: Brent Crude = $98.40/bbl (ELEVATED). Trigger: >100. Trend: ↑
 
     Args:
         slug: Indicator slug (key in INDICATOR_META).
-        value: Current value.
+        value: Current value, or news-flag dict {value, narrative}.
         prev_value: Previous value for trend direction.
         meta_override: Optional metadata override (for indicators not in registry).
 
@@ -144,21 +167,30 @@ def narrate_one(slug: str, value, prev_value=None, meta_override: dict = None) -
     status = _assess(value, meta)
     trigger = meta.get("trigger", "N/A")
 
+    # News-derived flag: show narrative instead of numeric value
+    if _is_news_flag(value):
+        narrative = value.get("narrative") or "(no news)"
+        narrative_short = narrative[:200]  # enforce 200-char cap per CHECKLIST.md
+        return f"{name} (news): {narrative_short}. Trigger: {trigger}."
+
     # Compute trend if prev_value available
+    scalar = _extract_scalar(value)
     trend = ""
-    if prev_value is not None and isinstance(value, (int, float)) and isinstance(prev_value, (int, float)):
-        change = value - prev_value
+    if prev_value is not None and isinstance(scalar, (int, float)) and isinstance(prev_value, (int, float)):
+        change = scalar - prev_value
         trend = f" Change: {change:+.2f} {_trend_arrow(change)}."
 
     # Format value
-    if isinstance(value, float):
-        val_str = f"{value:.2f}"
-    elif value is None:
+    if isinstance(scalar, float):
+        val_str = f"{scalar:.1f}"
+    elif scalar is None:
         val_str = "N/A"
+    elif isinstance(scalar, int):
+        val_str = str(scalar)
     else:
-        val_str = str(value)
+        val_str = str(scalar)
 
-    return f"{name}: {val_str} {unit} ({status}). Trigger: {trigger}.{trend}"
+    return f"{name} = {val_str} {unit} (status: {status}). Trigger: {trigger}.{trend}"
 
 
 def narrate_all(indicators: Dict[str, Any], prev_indicators: Dict[str, Any] = None) -> str:
@@ -251,10 +283,14 @@ async def generate_indicator_narratives(indicators: Dict[str, Any]) -> Dict[str,
     # Build context lines using existing narrate_one for structured input
     lines = []
     for slug, value in indicators.items():
-        if isinstance(value, (int, float)) and value != 0:
+        if isinstance(value, (int, float)):
             line = narrate_one(slug, value)
             lines.append(f"  {slug}: {line}")
         elif isinstance(value, str) and value:
+            line = narrate_one(slug, value)
+            lines.append(f"  {slug}: {line}")
+        elif isinstance(value, dict) and "value" in value and "narrative" in value:
+            # News-derived flag indicator — narrate_one already handles the dict format
             line = narrate_one(slug, value)
             lines.append(f"  {slug}: {line}")
 
@@ -264,11 +300,11 @@ async def generate_indicator_narratives(indicators: Dict[str, Any]) -> Dict[str,
     indicators_text = "\n".join(lines[:50])  # limit to 50 indicators per call
 
     try:
-        from src.agent.llm import get_llm, extract_json
+        from src.agent.llm import get_llm, extract_json, get_llm_content
         llm = get_llm(temperature=0.4)
         prompt = NARRATOR_PROMPT.replace("{indicators_text}", indicators_text)
         response = await llm.ainvoke(prompt)
-        result = extract_json(response.content)
+        result = extract_json(get_llm_content(response))
         return result if isinstance(result, dict) else {}
     except Exception:
         return {}  # graceful degradation
@@ -279,12 +315,12 @@ async def generate_indicator_narratives(indicators: Dict[str, Any]) -> Dict[str,
 # Dot → indicator slug mapping (which indicators inform each dot)
 DOT_INDICATORS: Dict[str, list] = {
     "dot_1": ["nato_fracture", "us_nato_withdrawal", "dxy"],
-    "dot_2": ["brent_price", "wti_price", "natgas_price", "eu_gas_storage_pct", "us_spr_mbbl", "hormuz_closure"],
+    "dot_2": ["brent_price", "wti_price", "natgas_price", "eu_gas_storage_pct", "us_spr_mbbl", "hormuz_closure", "news_eu_gas", "news_us_spr"],
     "dot_3": ["fao_monthly_change_pct", "cme_grains_monthly_pct"],
     "dot_4": ["ig_oas", "hy_oas", "vix", "us_10y", "us_2y"],
     "dot_5": ["btp_bund_spread", "cds_doubling"],
-    "dot_6": ["caixin_pmi", "shibor_1w", "china_property_default"],
-    "dot_7": ["protest_countries", "govt_crisis"],
+    "dot_6": ["caixin_pmi", "china_property_default", "news_caixin_pmi"],
+    "dot_7": ["protest_countries", "govt_crisis", "news_protest_countries"],
     "dot_8": ["brent_price", "hormuz_closure"],  # proxy: energy + trade chokepoints
     "dot_9": [],  # health — sourced from WHO + News (no numeric indicators in this pipeline)
     "em_currency": ["idr_breach", "try_breach", "egp_breach"],
@@ -315,13 +351,18 @@ def sources_for_dot(dot_key: str, indicators: Dict[str, Any]) -> str:
         status = _assess(value, meta) if value is not None else "UNKNOWN"
         source = meta.get("source", "unknown")
         name = meta.get("name", slug)
-        if isinstance(value, float):
+        if _is_news_flag(value):
+            # News-derived flag: show narrative instead of numeric value
+            narrative = value.get("narrative", "(no news)")
+            narrative_short = narrative[:200]
+            val_str = narrative_short
+        elif isinstance(value, float):
             val_str = f"{value:.2f}"
         elif value is not None:
             val_str = str(value)
         else:
             val_str = "N/A"
-        lines.append(f"  {name}: {val_str} ({status}) — {source}")
+        lines.append(f"  {name} = {val_str} ({status}) — {source}")
 
     return "\n".join(lines)
 
@@ -369,8 +410,10 @@ def sources_list_for_dot(dot_key: str, indicators: Dict[str, Any]) -> list:
             "source": meta.get("source", "unknown"),
         }
         if value is not None:
-            entry["value"] = value
+            entry["value"] = _extract_scalar(value)
             entry["status"] = _assess(value, meta)
+            if _is_news_flag(value):
+                entry["narrative"] = value["narrative"]
         result.append(entry)
     return result
 

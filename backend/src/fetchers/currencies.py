@@ -1,16 +1,19 @@
 """
 EM currency & China fetchers.
-Indicators: IDR, TRY, EGP, ARS, NGN, PKR vs USD; SHIBOR 1W; Caixin PMI.
-Uses yfinance for FX pairs and httpx for scrapes. Graceful degradation.
+Indicators: IDR, TRY, EGP, ARS, NGN, PKR vs USD; Caixin PMI.
+Uses yfinance for FX pairs (parallel with 15s timeout) and httpx for scrapes.
+Graceful degradation throughout.
 """
 import logging
-import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import httpx
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
+
+YFINANCE_TIMEOUT = 15
 
 # yfinance FX pairs — format is <CCY1><CCY>=X for CCY1/CCY2
 # USDIDR=X = USD/IDR. We want IDR per USD (how many IDR for 1 USD).
@@ -51,58 +54,37 @@ def _fetch_currency(name: str, info: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
-def _fetch_shibor() -> dict[str, Any] | None:
-    """Fetch SHIBOR 1W from shibor.org via scrape."""
-    try:
-        with httpx.Client(timeout=15.0) as client:
-            r = client.get(
-                "https://www.shibor.org/shibor/web/html/shibor.html",
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            r.raise_for_status()
-            # ponytail: quick regex scrape; if site restructures, use API fallback
-            match = re.search(r"1W[<>\s\w/]*?(\d+\.\d+)", r.text, re.IGNORECASE)
-            if not match:
-                match = re.search(r"隔夜.*?(\d+\.\d+).*?1W.*?(\d+\.\d+)", r.text)
-                value = float(match.group(2)) if match else None
-            else:
-                value = float(match.group(1))
-            if value is None:
-                return None
-            return {
-                "name": "SHIBOR 1W",
-                "category": "China",
-                "value": value,
-                "unit": "%",
-                "status": "normal",
-                "trigger_level": ">4.5% or sudden +100bps jump",
-            }
-    except Exception:
-        logger.exception("SHIBOR scrape failed")
-        return None
-
-
 def _fetch_caixin_pmi() -> dict[str, Any] | None:
     """Fetch Caixin Manufacturing PMI via TradingEconomics scrape or proxy."""
-    # ponytail: free scrape unreliable; return None rather than fake data
-    # The composite scorer can mark this as 'unknown' until a reliable source is wired
     logger.info("Caixin PMI: no free API available — skipping")
     return None
 
 
 def fetch_all_currencies() -> list[dict[str, Any]]:
-    """Fetch all EM currency + China indicators. Returns partial on failure."""
+    """Fetch all EM currency + China indicators.
+
+    yfinance calls run in parallel with per-call 15s timeout.
+    Returns partial on failure.
+    """
     results: list[dict[str, Any]] = []
 
-    for name, info in CURRENCY_PAIRS.items():
-        r = _fetch_currency(name, info)
-        if r:
-            results.append(r)
+    # Parallel yfinance FX fetches
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {
+            executor.submit(_fetch_currency, name, info): name
+            for name, info in CURRENCY_PAIRS.items()
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                r = future.result(timeout=YFINANCE_TIMEOUT + 1)
+            except Exception:
+                logger.warning("yfinance FX call timed out or failed for %s", name)
+                r = None
+            if r:
+                results.append(r)
 
-    shibor = _fetch_shibor()
-    if shibor:
-        results.append(shibor)
-
+    # Non-yfinance sources (fast — sequential is fine)
     caixin = _fetch_caixin_pmi()
     if caixin:
         results.append(caixin)

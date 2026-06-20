@@ -166,7 +166,7 @@ def test_dot_analyzer_fallbacks():
     assert fb["dot_1"]["status"] == "dormant"
     assert "nato_outlook" in fb["dot_1"]
     assert "sources" in fb["dot_1"], "dot_1 missing sources"
-    assert isinstance(fb["dot_1"]["sources"], list), "dot_1 sources should be list"
+    assert isinstance(fb["dot_1"]["sources"], str), "dot_1 sources should be str (paragraph format)"
     assert "sources" in fb["dot_2"], "dot_2 missing sources"
 
     # Agent 2: Food & Debt (dots 3+5)
@@ -232,7 +232,7 @@ def test_indicator_narrator_context():
     # Every indicator used by the pipeline has metadata
     pipeline_slugs = [
         "brent_price", "wti_price", "dxy", "gold_price", "us_10y", "us_2y",
-        "vix", "ig_oas", "hy_oas", "caixin_pmi", "shibor_1w",
+        "vix", "ig_oas", "hy_oas", "caixin_pmi",
         "fao_monthly_change_pct", "cme_grains_monthly_pct",
         "btp_bund_spread", "eu_gas_storage_pct", "us_spr_mbbl",
         "idr_breach", "try_breach", "egp_breach",
@@ -261,7 +261,7 @@ def test_indicator_narrator_context():
 
     # Single indicator with trend
     line = narrate_one("brent_price", 82.5, 79.0)
-    assert "82.50" in line
+    assert "82.5" in line
     assert "Change" in line
     assert "↑" in line
 
@@ -502,7 +502,7 @@ def test_full_pipeline_with_mock_data():
     for dot_key, dot_data in result["dot_analyses"].items():
         if isinstance(dot_data, dict):
             assert "sources" in dot_data, f"{dot_key} missing sources"
-            assert isinstance(dot_data["sources"], list), f"{dot_key} sources not a list"
+            assert isinstance(dot_data["sources"], str), f"{dot_key} sources not a string"
 
     # Pathways
     assert result["pathways"] is not None

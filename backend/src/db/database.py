@@ -78,6 +78,11 @@ def init_db():
             triggered_at TEXT NOT NULL DEFAULT (datetime('now')),
             acknowledged INTEGER DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS pipeline_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_data TEXT NOT NULL,
+            completed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
         CREATE INDEX IF NOT EXISTS idx_indicators_category ON indicators(category);
         CREATE INDEX IF NOT EXISTS idx_history_name_time ON indicator_history(indicator_name, recorded_at);
         CREATE INDEX IF NOT EXISTS idx_dot_analyses_time ON dot_analyses(analyzed_at);
