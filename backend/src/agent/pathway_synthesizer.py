@@ -5,7 +5,7 @@ pathways (A/B/C/D) are active.
 """
 import json
 from typing import Dict, Any
-from src.agent.llm import get_llm, extract_json, get_llm_content
+from src.agent.llm import call_llm_with_retry
 
 SYNTHESIZER_PROMPT = """You are a crisis pathway synthesis analyst. Your job is to connect the dots across all 9 crisis indicators and determine which of 4 escalation pathways are active.
 
@@ -18,7 +18,7 @@ PATHWAY DEFINITIONS:
 DOT ANALYSES:
 {dots_json}
 
-COMPOSITE SCORE: {composite}/16 ({interpretation})
+COMPOSITE SCORE: {composite}/30 ({interpretation})
 
 Based on ALL the dot analyses above, determine which pathways are active.
 
@@ -78,14 +78,12 @@ async def synthesize_pathways(
     composite: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Agent 6: Connect all dots into pathway assessment."""
-    llm = get_llm(temperature=0.3)
     prompt = SYNTHESIZER_PROMPT.format(
         dots_json=json.dumps(dot_analyses, indent=2),
         composite=composite["composite"],
         interpretation=composite["interpretation"],
     )
-    resp = await llm.ainvoke(prompt)
-    result = extract_json(get_llm_content(resp))
+    result, _ = await call_llm_with_retry(prompt)
     if not result:
         return _fallback_pathways(composite)
     return result
@@ -95,10 +93,10 @@ def _fallback_pathways(composite: Dict[str, Any]) -> Dict[str, Any]:
     """Safe fallback pathway assessment when LLM fails."""
     score = composite["composite"]
     # Simple heuristic: more composite score = more pathways active
-    pathway_d_active = score >= 13
-    pathway_a_active = score >= 9 or pathway_d_active
-    pathway_b_active = score >= 9 or pathway_d_active
-    pathway_c_active = score >= 9 or pathway_d_active
+    pathway_d_active = score >= 20
+    pathway_a_active = score >= 12 or pathway_d_active
+    pathway_b_active = score >= 12 or pathway_d_active
+    pathway_c_active = score >= 12 or pathway_d_active
 
     def make_pathway(active: bool, fading: bool, dots: list, confidence: float,
                      name: str, description: str):
@@ -125,14 +123,14 @@ def _fallback_pathways(composite: Dict[str, Any]) -> Dict[str, Any]:
         "pathway_d": make_pathway(pathway_d_active, False, ["all"], 0.5,
             "Systemic Collapse",
             "Multiple pathways A+B+C activating simultaneously → coordinated crisis. Activates only when multiple other pathways are active simultaneously, indicating a systemic breakdown rather than isolated stress."),
-        "overall_assessment": f"Fallback assessment: composite score {score}/16 ({composite['interpretation']})",
+        "overall_assessment": f"Fallback assessment: composite score {score}/30 ({composite['interpretation']})",
         "dominant_pathway": "D" if pathway_d_active else ("A" if pathway_a_active else "none"),
     }
 
 
 # Self-check
 if __name__ == "__main__":
-    fb = _fallback_pathways({"composite": 2, "interpretation": "monitor"})
+    fb = _fallback_pathways({"composite": 2, "interpretation": "normal"})
     assert fb["pathway_a"]["active"] is False
     assert fb["pathway_b"]["active"] is False
     assert fb["dominant_pathway"] == "none"
@@ -142,7 +140,7 @@ if __name__ == "__main__":
         assert "description" in fb[key], f"{key} missing description"
         assert isinstance(fb[key]["name"], str) and len(fb[key]["name"]) > 0
 
-    fb = _fallback_pathways({"composite": 14, "interpretation": "crisis"})
+    fb = _fallback_pathways({"composite": 26, "interpretation": "critical"})
     assert fb["pathway_d"]["active"] is True
     assert fb["dominant_pathway"] == "D"
     assert fb["pathway_d"]["name"] == "Systemic Collapse"

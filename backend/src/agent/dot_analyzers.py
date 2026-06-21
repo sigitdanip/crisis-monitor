@@ -9,10 +9,38 @@ news headlines, and data points that informed the assessment.
 import json
 import logging
 from typing import Dict, Any, List
-from src.agent.llm import get_llm, extract_json, get_llm_content
+from src.agent.llm import call_llm_with_retry
 from src.agent.indicator_narrator import narrate_all, sources_narrative, sources_for_dot
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# Category Score Formatting — V2: per-agent category context
+# ============================================================
+
+def _format_category_scores(category_scores: dict, relevant_cats: list) -> str:
+    """Format relevant category scores into a concise context string.
+
+    Each category score is a weighted sum of its indicators (0 to weight×count).
+    The total composite is the normalized 0-30 score.
+
+    Args:
+        category_scores: Dict of {category_name: weighted_sum}.
+        relevant_cats: List of category keys relevant to this agent's dots.
+
+    Returns:
+        Formatted multi-line string for prompt injection.
+    """
+    lines = []
+    for cat in relevant_cats:
+        score = category_scores.get(cat, 0.0)
+        label = cat.replace("_", " ").title()
+        lines.append(f"  {label}: {score:.2f}")
+    total = sum(category_scores.values())
+    lines.append(f"  (Total weighted sum: {total:.2f} across {len(category_scores)} categories)")
+    return "\n".join(lines)
+
 
 # ============================================================
 # Agent 1: GEOPOLITICAL — Dots 1 (NATO) + 2 (Hormuz/Energy)
@@ -25,7 +53,7 @@ Analyze the following indicators and news for Dot 1 (NATO Alliance Cohesion) and
 INDICATORS:
 {indicators_narrative}
 
-COMPOSITE SCORE: {composite}/16 ({interpretation})
+COMPOSITE SCORE: {composite}/30 ({interpretation})
 
 DATA SOURCES:
 {sources_narrative}
@@ -66,7 +94,6 @@ async def analyze_geopolitical(
     news: List[Dict[str, str]] | None = None,
 ) -> Dict[str, Any]:
     """Agent 1: Geopolitical — Dots 1 (NATO) + 2 (Hormuz/Energy)."""
-    llm = get_llm(temperature=0.3)
     prompt = AGENT1_PROMPT.format(
         indicators_narrative=narrate_all(indicators),
         composite=composite["composite"],
@@ -74,8 +101,7 @@ async def analyze_geopolitical(
         sources_narrative=sources_narrative(indicators, ["dot_1", "dot_2"]),
         news_json=json.dumps(news or [], indent=2),
     )
-    resp = await llm.ainvoke(prompt)
-    result = extract_json(get_llm_content(resp))
+    result, _ = await call_llm_with_retry(prompt)
     return result if result else _fallback("geopolitical", indicators)
 
 
@@ -90,7 +116,7 @@ Analyze the following indicators and news for Dot 3 (Food & Fertilizer Crisis) a
 INDICATORS:
 {indicators_narrative}
 
-COMPOSITE SCORE: {composite}/16 ({interpretation})
+COMPOSITE SCORE: {composite}/30 ({interpretation})
 
 DATA SOURCES:
 {sources_narrative}
@@ -132,7 +158,6 @@ async def analyze_food_debt(
     news: List[Dict[str, str]] | None = None,
 ) -> Dict[str, Any]:
     """Agent 2: Food & Debt — Dots 3 (Food) + 5 (Sovereign Debt)."""
-    llm = get_llm(temperature=0.3)
     prompt = AGENT2_PROMPT.format(
         indicators_narrative=narrate_all(indicators),
         composite=composite["composite"],
@@ -140,11 +165,9 @@ async def analyze_food_debt(
         sources_narrative=sources_narrative(indicators, ["dot_3", "dot_5"]),
         news_json=json.dumps(news or [], indent=2),
     )
-    resp = await llm.ainvoke(prompt)
-    content = get_llm_content(resp)
-    result = extract_json(content)
+    result, _ = await call_llm_with_retry(prompt)
     if not result:
-        logger.warning("Agent 2 (food_debt) extract_json failed on %d chars: %.300s", len(content), content)
+        logger.warning("Agent 2 (food_debt) extract_json returned empty dict")
         return _fallback("food_debt", indicators)
     return result
 
@@ -160,7 +183,7 @@ Analyze the following indicators for Dot 4 (Financial/Credit Stress) and EM Curr
 INDICATORS:
 {indicators_narrative}
 
-COMPOSITE SCORE: {composite}/16 ({interpretation})
+COMPOSITE SCORE: {composite}/30 ({interpretation})
 
 DATA SOURCES:
 {sources_narrative}
@@ -203,7 +226,6 @@ async def analyze_financial_em(
     news: List[Dict[str, str]] | None = None,
 ) -> Dict[str, Any]:
     """Agent 3: Financial & EM — Dot 4 (Credit) + EM Currency stress."""
-    llm = get_llm(temperature=0.3)
     prompt = AGENT3_PROMPT.format(
         indicators_narrative=narrate_all(indicators),
         composite=composite["composite"],
@@ -211,11 +233,9 @@ async def analyze_financial_em(
         sources_narrative=sources_narrative(indicators, ["dot_4", "em_currency"]),
         news_json=json.dumps(news or [], indent=2),
     )
-    resp = await llm.ainvoke(prompt)
-    content = get_llm_content(resp)
-    result = extract_json(content)
+    result, _ = await call_llm_with_retry(prompt)
     if not result:
-        logger.warning("Agent 3 (financial_em) extract_json failed on %d chars: %.300s", len(content), content)
+        logger.warning("Agent 3 (financial_em) extract_json returned empty dict")
         return _fallback("financial_em", indicators)
     return result
 
@@ -231,7 +251,7 @@ Analyze the following indicators for Dot 6 (China Economic Stress), Dot 7 (Polit
 INDICATORS:
 {indicators_narrative}
 
-COMPOSITE SCORE: {composite}/16 ({interpretation})
+COMPOSITE SCORE: {composite}/30 ({interpretation})
 
 DATA SOURCES:
 {sources_narrative}
@@ -281,7 +301,6 @@ async def analyze_china_political(
     news: List[Dict[str, str]] | None = None,
 ) -> Dict[str, Any]:
     """Agent 4: China & Political — Dots 6 (China) + 7 (Political) + 8 (Supply Chain)."""
-    llm = get_llm(temperature=0.3)
     prompt = AGENT4_PROMPT.format(
         indicators_narrative=narrate_all(indicators),
         composite=composite["composite"],
@@ -289,8 +308,7 @@ async def analyze_china_political(
         sources_narrative=sources_narrative(indicators, ["dot_6", "dot_7", "dot_8"]),
         news_json=json.dumps(news or [], indent=2),
     )
-    resp = await llm.ainvoke(prompt)
-    result = extract_json(get_llm_content(resp))
+    result, _ = await call_llm_with_retry(prompt)
     return result if result else _fallback("china_political", indicators)
 
 
@@ -305,7 +323,7 @@ Analyze the following indicators for Dot 9 (Health Security — Hantavirus & Pan
 INDICATORS:
 {indicators_narrative}
 
-COMPOSITE SCORE: {composite}/16 ({interpretation})
+COMPOSITE SCORE: {composite}/30 ({interpretation})
 
 DATA SOURCES:
 {sources_narrative}
@@ -341,7 +359,6 @@ async def analyze_health(
     news: List[Dict[str, str]] | None = None,
 ) -> Dict[str, Any]:
     """Agent 5: Health — Dot 9 (Hantavirus/Pandemic)."""
-    llm = get_llm(temperature=0.3)
     prompt = AGENT5_PROMPT.format(
         indicators_narrative=narrate_all(indicators),
         composite=composite["composite"],
@@ -349,8 +366,7 @@ async def analyze_health(
         sources_narrative=sources_narrative(indicators, ["dot_9"]),
         news_json=json.dumps(news or [], indent=2),
     )
-    resp = await llm.ainvoke(prompt)
-    result = extract_json(get_llm_content(resp))
+    result, _ = await call_llm_with_retry(prompt)
     return result if result else _fallback("health", indicators)
 
 

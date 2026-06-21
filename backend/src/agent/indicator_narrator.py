@@ -300,11 +300,9 @@ async def generate_indicator_narratives(indicators: Dict[str, Any]) -> Dict[str,
     indicators_text = "\n".join(lines[:50])  # limit to 50 indicators per call
 
     try:
-        from src.agent.llm import get_llm, extract_json, get_llm_content
-        llm = get_llm(temperature=0.4)
+        from src.agent.llm import call_llm_with_retry
         prompt = NARRATOR_PROMPT.replace("{indicators_text}", indicators_text)
-        response = await llm.ainvoke(prompt)
-        result = extract_json(get_llm_content(response))
+        result, _ = await call_llm_with_retry(prompt, temperature=0.4)
         return result if isinstance(result, dict) else {}
     except Exception:
         return {}  # graceful degradation

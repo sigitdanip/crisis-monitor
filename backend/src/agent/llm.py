@@ -1,11 +1,17 @@
 """LLM helper — OpenCode Go via langchain-openai."""
-import os
+import asyncio
 import json
+import logging
+import os
 import re
+from typing import Any
+
 from langchain_openai import ChatOpenAI
 
+logger = logging.getLogger(__name__)
 
-def get_llm(temperature: float = 0.3, timeout: int = 25) -> ChatOpenAI:
+
+def get_llm(temperature: float = 0.3, timeout: int = 60) -> ChatOpenAI:
     """Return ChatOpenAI pointed at OpenCode Go."""
     api_key = os.environ.get("OPENCODE_GO_API_KEY", "")
     model = os.environ.get("LLM_MODEL", "mimo-v2.5")
@@ -63,3 +69,65 @@ def extract_json(text: str) -> dict:
                 pass
             idx += 1
     return {}
+
+
+async def call_llm_with_retry(
+    prompt: str,
+    max_attempts: int = 2,
+    timeout: int = 60,
+    base_delay: float = 1.0,
+    temperature: float = 0.3,
+) -> tuple[dict[str, Any], int]:
+    """Call the LLM with retry on transient failures.
+
+    Creates an LLM instance via get_llm(), invokes with the prompt, extracts
+    content via get_llm_content(), and parses JSON via extract_json().
+
+    On failure (timeout, network error, 5xx), retries up to max_attempts
+    times with exponential backoff (base_delay, base_delay*2, ...).
+
+    Args:
+        prompt: The full prompt string to send.
+        max_attempts: Maximum call attempts (default 2).
+        timeout: Per-call timeout in seconds (default 60).
+        base_delay: Initial backoff delay in seconds (default 1.0).
+        temperature: LLM temperature (default 0.3).
+
+    Returns:
+        Tuple of (parsed_json_dict, attempt_count) on success.
+
+    Raises:
+        The last exception after exhausting all attempts.
+    """
+    last_exception: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            llm = get_llm(temperature=temperature, timeout=timeout)
+            resp = await llm.ainvoke(prompt)
+            content = get_llm_content(resp)
+            result = extract_json(content)
+            if not result:
+                logger.warning(
+                    "LLM returned unparseable output (attempt %d/%d): %.200s",
+                    attempt, max_attempts, content,
+                )
+                return (result, attempt)
+            return (result, attempt)
+        except Exception as exc:
+            last_exception = exc
+            if attempt < max_attempts:
+                delay = base_delay * (2 ** (attempt - 1))
+                logger.warning(
+                    "LLM call failed (attempt %d/%d, retrying in %.1fs): %s",
+                    attempt, max_attempts, delay, exc,
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.error(
+                    "LLM call failed after %d attempts: %s",
+                    max_attempts, exc,
+                )
+
+    # All attempts exhausted — raise the last exception
+    assert last_exception is not None
+    raise last_exception
