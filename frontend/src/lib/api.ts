@@ -46,8 +46,18 @@ export async function fetchHistory(days = 30): Promise<HistoryReport[]> {
   return data.reports ?? [];
 }
 
+/**
+ * @deprecated Use fetchTimeseriesByDays instead. The backend now operates on day resolution.
+ *   This function still works via the backend's backwards-compat minutes→days conversion.
+ */
 export async function fetchTimeseries(minutes = 60): Promise<TimeseriesResponse> {
   const res = await fetchWithTimeout(`${BASE}/api/timeseries?minutes=${minutes}`);
+  if (!res.ok) throw new Error(`Timeseries fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchTimeseriesByDays(days: number): Promise<TimeseriesResponse> {
+  const res = await fetchWithTimeout(`${BASE}/api/timeseries?days=${days}`);
   if (!res.ok) throw new Error(`Timeseries fetch failed: ${res.status}`);
   return res.json();
 }

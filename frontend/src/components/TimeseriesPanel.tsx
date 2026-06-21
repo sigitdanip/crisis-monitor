@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { TimeseriesResponse, TimeseriesPoint } from "@/types";
-import { fetchTimeseries } from "@/lib/api";
+import { fetchTimeseriesByDays } from "@/lib/api";
 import { usePolling } from "@/lib/usePolling";
 import { compositeColor } from "@/lib/colors";
 
@@ -46,6 +46,35 @@ function drawYAxis(ctx: CanvasRenderingContext2D, h: number, w: number) {
     ctx.moveTo(PAD_L, y);
     ctx.lineTo(w - PAD_R, y);
     ctx.stroke();
+  }
+}
+
+function drawXAxis(
+  ctx: CanvasRenderingContext2D,
+  points: TimeseriesPoint[],
+  h: number,
+  w: number,
+  days: number,
+) {
+  if (points.length < 2) return;
+  const plotW = w - PAD_L - PAD_R;
+  const stepX = plotW / Math.max(points.length - 1, 1);
+  const plotH = h - PAD_T - PAD_B;
+  const yBase = PAD_T + plotH + 14; // below the plot area
+
+  ctx.fillStyle = "#52525b";
+  ctx.font = "8px monospace";
+  ctx.textAlign = "center";
+
+  // Choose label spacing based on range
+  const skip = days <= 1 ? 1 : days <= 7 ? 1 : 3; // every point for 1d, every point for 7d, every 3rd for 30d
+
+  for (let i = 0; i < points.length; i += skip) {
+    const pt = points[i];
+    const x = PAD_L + i * stepX;
+    const date = new Date(pt.recorded_at);
+    const label = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    ctx.fillText(label, x, yBase);
   }
 }
 
@@ -101,11 +130,13 @@ function TimeseriesChart({
   title,
   unit,
   points,
+  days,
   height = CHART_H,
 }: {
   title: string;
   unit: string;
   points: TimeseriesPoint[];
+  days: number;
   height?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -157,13 +188,18 @@ function TimeseriesChart({
     // Y axis
     drawYAxis(ctx, height, chartW);
 
+    // X axis (date labels)
+    if (points.length > 0) {
+      drawXAxis(ctx, points, height, chartW, days);
+    }
+
     // Data line
     if (points.length > 0) {
       const lastPt = points[points.length - 1];
       const c = compositeColor(Math.min(lastPt.value, 30));
       drawLine(ctx, points, height, c.stroke, chartW);
     }
-  }, [points, height, chartW]);
+  }, [points, height, chartW, days]);
 
   useEffect(() => {
     draw();
@@ -198,7 +234,12 @@ function TimeseriesChart({
         indicatorName: title,
         value: pt.value,
         status: pt.status,
-        time: pt.recorded_at,
+        time: new Date(pt.recorded_at).toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }),
       });
     },
     [points, title, height, chartW],
@@ -251,10 +292,11 @@ export function TimeseriesPanel({ data: _data }: { data: import("@/types").Dashb
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [days, setDays] = useState(7);
 
   const loadTimeseries = useCallback(async () => {
     try {
-      const ts = await fetchTimeseries(60);
+      const ts = await fetchTimeseriesByDays(days);
       setTimeseries(ts);
       setError(null);
     } catch (err: unknown) {
@@ -268,14 +310,14 @@ export function TimeseriesPanel({ data: _data }: { data: import("@/types").Dashb
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [days]);
 
   useEffect(() => {
     loadTimeseries();
   }, [loadTimeseries]);
 
-  // Poll every 30s for fresh timeseries data
-  usePolling(loadTimeseries, 30_000);
+  // Poll every 24h (daily pipeline runs at 8am)
+  usePolling(loadTimeseries, 24 * 60 * 60 * 1000);
 
   // Extract categories from the series data
   const categories = timeseries?.series
@@ -312,11 +354,29 @@ export function TimeseriesPanel({ data: _data }: { data: import("@/types").Dashb
 
   return (
     <div className="flex-1 overflow-auto p-4 space-y-4 md:p-6 md:space-y-6">
+      {/* Range Tabs */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {[1, 7, 30].map((d) => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => setDays(d)}
+            className={`text-xs font-mono px-2 py-1 rounded border ${
+              days === d
+                ? "border-zinc-400 text-zinc-200 bg-zinc-800"
+                : "border-zinc-700 text-zinc-500 hover:border-zinc-600"
+            }`}
+          >
+            {d}D
+          </button>
+        ))}
+      </div>
+
       {/* Composite Score Timeseries */}
       {timeseries?.composite_series && timeseries.composite_series.length > 0 && (
         <div className="p-3 md:p-4 rounded border border-zinc-800 bg-zinc-900/50">
           <h3 className="text-[10px] md:text-xs font-mono text-zinc-500 mb-3">
-            COMPOSITE SCORE — LAST 60 MIN
+            COMPOSITE SCORE — LAST {days} {days === 1 ? "DAY" : "DAYS"}
           </h3>
           <TimeseriesChart
             title="Composite Score"
@@ -326,6 +386,7 @@ export function TimeseriesPanel({ data: _data }: { data: import("@/types").Dashb
               value: p.composite_score,
               status: p.interpretation,
             }))}
+            days={days}
             height={200}
           />
         </div>
@@ -373,6 +434,7 @@ export function TimeseriesPanel({ data: _data }: { data: import("@/types").Dashb
               title={series.display_name || series.indicator_name}
               unit={series.unit || ""}
               points={series.points}
+              days={days}
             />
           </div>
         ))}
@@ -381,18 +443,18 @@ export function TimeseriesPanel({ data: _data }: { data: import("@/types").Dashb
       {filteredSeries.length === 0 && timeseries && (
         <p className="text-xs text-zinc-600 text-center">
           {selectedCategory === "all"
-            ? "No timeseries data available for the last 60 minutes."
+            ? "Waiting for first daily snapshot at 8am"
             : `No indicators in category "${selectedCategory.replace(/_/g, " ")}"`}
         </p>
       )}
 
-      {/* Footer with time range */}
+      {/* Footer with date range */}
       {timeseries?.from && (
         <div className="flex items-center justify-between text-[10px] font-mono text-zinc-600 border-t border-zinc-800 pt-3">
           <span suppressHydrationWarning>
-            {new Date(timeseries.from).toLocaleTimeString()} — {new Date(timeseries.to).toLocaleTimeString()}
+            {new Date(timeseries.from).toLocaleDateString("en-US", { month: "short", day: "numeric" })} — {new Date(timeseries.to).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
           </span>
-          <span>Updates every 30s</span>
+          <span>Updates daily</span>
         </div>
       )}
     </div>
