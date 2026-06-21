@@ -1,10 +1,11 @@
 "use client";
-import { useState, useMemo } from "react";
-import type { DashboardData, KeyQuestion } from "@/types";
+import { useState, useMemo, useEffect } from "react";
+import type { DashboardData, KeyQuestion, FiveQuestions, HistoryReport } from "@/types";
 import { getDotDisplayName, getPathwayName } from "@/types";
 import { END_STATE_COLORS, compositeColor, STATUS_COLORS, STATUS_ORDER, PATHWAY_COLORS } from "@/lib/colors";
 import { RadialGauge } from "./ui/RadialGauge";
 import { Sparkline } from "./ui/Sparkline";
+import { fetchHistory } from "@/lib/api";
 
 export function ReportPanel({ data }: { data: DashboardData }) {
   const { report, dots, pathways, indicators, alerts } = data;
@@ -16,18 +17,16 @@ export function ReportPanel({ data }: { data: DashboardData }) {
 
   const endState = report.end_state;
   const endColor = END_STATE_COLORS[endState] ?? END_STATE_COLORS.unknown;
-  const confidence = parseInt(report.confidence ?? "0") || 0;
+  const confidence = Math.round(parseFloat(report.confidence ?? "0") * 100) || 0;
   const c = compositeColor(report.composite_score ?? 0);
 
-  // Parse 5 questions — handles both string (old) and object (new) formats
+  // Parse 5 questions — server returns parsed object
   interface QuestionItem extends KeyQuestion { key: string }
   let questions: QuestionItem[] = [];
   try {
-    const parsed = typeof report.five_questions === "string"
-      ? JSON.parse(report.five_questions)
-      : report.five_questions;
+    const parsed: FiveQuestions | Record<string, unknown> = report.five_questions;
     if (Array.isArray(parsed)) {
-      questions = parsed.map((item: Record<string, unknown>, idx: number) => ({
+      questions = (parsed as unknown as Record<string, unknown>[]).map((item, idx: number) => ({
         key: `q${idx + 1}`,
         question: String(item.question ?? item.q ?? `Question ${idx + 1}`),
         answer: String(item.answer ?? item.a ?? ""),
@@ -65,16 +64,46 @@ export function ReportPanel({ data }: { data: DashboardData }) {
     (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9)
   );
 
-  // 7-day trajectory — use last 7 entries from indicator history
-  const trajectoryDays = Array.from({ length: 8 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (7 - i));
-    return { label: date.toLocaleDateString("en", { weekday: "short" }), score: report.composite_score + Math.floor(Math.random() * 3 - 1) };
-  });
+  // 7-day trajectory — fetched from real report history, client-only.
+  // SSR-safe: initial state uses placeholder labels + current score.
+  interface TrajectoryDay {
+    label: string;
+    score: number;
+  }
+  const [trajectoryDays, setTrajectoryDays] = useState<TrajectoryDay[]>(() =>
+    Array.from({ length: 8 }, (_, i) => ({
+      label: "—",
+      score: report.composite_score,
+    })),
+  );
+  useEffect(() => {
+    let cancelled = false;
+    fetchHistory(7)
+      .then((history: HistoryReport[]) => {
+        if (cancelled) return;
+        const days: TrajectoryDay[] = [];
+        // History is newest-first; we want oldest-first for left-to-right display
+        const reversed = [...history].reverse();
+        for (const h of reversed) {
+          const d = new Date(h.date + "T00:00:00");
+          days.push({
+            label: d.toLocaleDateString("en", { weekday: "short" }),
+            score: h.composite_score,
+          });
+        }
+        if (days.length > 0) {
+          setTrajectoryDays(days);
+        }
+      })
+      .catch(() => {
+        // keep placeholder data on fetch error
+      });
+    return () => { cancelled = true; };
+  }, [report.composite_score]);
 
   // Sparkline data
   const sparkData = useMemo(() => {
-    return (indicators ?? []).slice(0, 15).map((i) => i.value ?? Math.random() * 100);
+    return (indicators ?? []).slice(0, 15).map((i) => i.value ?? 0);
   }, [indicators]);
 
   function toggleQ(idx: number) {
@@ -114,7 +143,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
           </div>
           <div className="flex items-center gap-4">
             <RadialGauge value={confidence} max={100} size={80} color="#f97316" label="Confidence" />
-            <RadialGauge value={report.composite_score} max={16} size={80} color={c.stroke} label="Composite" />
+            <RadialGauge value={report.composite_score} max={30} size={80} color={c.stroke} label="Composite" />
           </div>
         </div>
       </div>
@@ -260,7 +289,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
                   isToday ? "border border-zinc-400 bg-zinc-800" : "bg-zinc-900/60"
                 }`}
               >
-                <span className="text-xs text-zinc-500">{day.label}</span>
+                <span suppressHydrationWarning className="text-xs text-zinc-500">{day.label}</span>
                 <span className={`text-sm font-bold ${dayColor.text}`}>{day.score}</span>
               </div>
             );
@@ -270,7 +299,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
 
       {/* 7. Footer */}
       <div className="flex items-center justify-between text-xs font-mono text-zinc-600 border-t border-zinc-800 pt-3">
-        <span>Generated: {new Date(report.created_at).toLocaleString()}</span>
+        <span suppressHydrationWarning>Generated: {new Date(report.created_at).toLocaleString()}</span>
         <span>Next run: daily at 08:00</span>
       </div>
     </div>

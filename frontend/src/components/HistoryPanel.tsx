@@ -23,17 +23,26 @@ export function HistoryPanel({ data: liveData }: { data: DashboardData }) {
     [history]
   );
 
-  // Dot status heatmap (simplified — from dot names mapped across days)
+  // Dot status heatmap — real dot history requires backend endpoint (api-dev card t_dd4e3e49).
+  // Until then, all cells show dormant (0). Composite bar chart above uses real data.
   const heatmapData = useMemo(() => {
-    if (!history.length) return { data: [] as { x: number; y: number; value: number }[], xLabels: [] as string[], yLabels: [] as string[] };
     const dots = liveData.dots ?? [];
-    const xLabels = history.slice(-30).map((h) => h.date?.slice(5) ?? "");
-    const yLabels = dots.map((d) => `D${d.dot_number}`);
+    const xLabels = history.length > 0
+      ? history.slice(-30).map((h) => h.date?.slice(5) ?? "")
+      : Array.from({ length: 7 }, (_, i) => {
+          const d = new Date();
+          d.setDate(d.getDate() - (6 - i));
+          return d.toISOString().slice(5, 10);
+        });
+    const yLabels = dots.length > 0
+      ? dots.map((d) => `D${d.dot_number}`)
+      : ["D0"];
+    const xLen = xLabels.length || 1;
     const data = yLabels.flatMap((_, yIdx) =>
       xLabels.map((_, xIdx) => ({
         x: xIdx,
         y: yIdx,
-        value: Math.floor(Math.random() * 3),
+        value: 0, // all dormant — real data requires dot_status_history endpoint
       }))
     );
     return { data, xLabels, yLabels };
@@ -63,8 +72,8 @@ export function HistoryPanel({ data: liveData }: { data: DashboardData }) {
         <div className="overflow-x-auto">
         <div className="flex items-end gap-px md:gap-1 h-24 min-w-[360px]">
           {compositeData.map((score, i) => {
-            const hPct = (score / 16) * 100;
-            const color = score <= 4 ? "bg-emerald-500/60" : score <= 8 ? "bg-amber-500/60" : score <= 12 ? "bg-orange-500/60" : "bg-red-500/60";
+            const hPct = (score / 30) * 100;
+            const color = score <= 6 ? "bg-emerald-500/60" : score <= 12 ? "bg-amber-500/60" : score <= 20 ? "bg-orange-500/60" : score <= 25 ? "bg-red-500/60" : "bg-rose-600/60";
             return (
               <div
                 key={i}
@@ -91,6 +100,9 @@ export function HistoryPanel({ data: liveData }: { data: DashboardData }) {
           yLabels={heatmapData.yLabels}
           cellSize={12}
         />
+        <p className="text-[9px] text-zinc-700 mt-1 font-mono">
+          Dot history requires /api/dots/history endpoint (see api-dev card t_dd4e3e49)
+        </p>
       </div>
 
       {/* Past Reports List */}

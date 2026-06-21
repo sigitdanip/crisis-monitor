@@ -22,17 +22,19 @@ export const END_STATE_COLORS: Record<string, string> = {
 };
 
 export const COMPOSITE_ZONES = [
-  { max: 4, label: "Monitor", color: "text-emerald-400", bg: "bg-emerald-500/20" },
-  { max: 8, label: "Elevated", color: "text-amber-400", bg: "bg-amber-500/20" },
-  { max: 12, label: "High", color: "text-orange-400", bg: "bg-orange-500/20" },
-  { max: 16, label: "Crisis", color: "text-red-400", bg: "bg-red-500/20" },
+  { max: 6,  label: "Normal",   color: "text-emerald-400", bg: "bg-emerald-500/20" },
+  { max: 12, label: "Monitor",  color: "text-amber-400",   bg: "bg-amber-500/20"   },
+  { max: 20, label: "Elevated", color: "text-orange-400",  bg: "bg-orange-500/20"  },
+  { max: 25, label: "Alert",    color: "text-red-400",     bg: "bg-red-500/20"     },
+  { max: 30, label: "Critical", color: "text-rose-500",    bg: "bg-rose-600/20"    },
 ];
 
 export function compositeColor(score: number) {
-  if (score <= 4) return { stroke: "#10b981", text: "text-emerald-400", label: "Monitor" };
-  if (score <= 8) return { stroke: "#f59e0b", text: "text-amber-400", label: "Elevated" };
-  if (score <= 12) return { stroke: "#f97316", text: "text-orange-400", label: "High" };
-  return { stroke: "#ef4444", text: "text-red-400", label: "Crisis" };
+  if (score <= 6)  return { stroke: "#10b981", text: "text-emerald-400", label: "Normal"   };
+  if (score <= 12) return { stroke: "#f59e0b", text: "text-amber-400",   label: "Monitor"  };
+  if (score <= 20) return { stroke: "#f97316", text: "text-orange-400",  label: "Elevated" };
+  if (score <= 25) return { stroke: "#ef4444", text: "text-red-400",     label: "Alert"    };
+  return            { stroke: "#e11d48", text: "text-rose-500",      label: "Critical" };
 }
 
 export const CATEGORY_NAMES: Record<string, string> = {

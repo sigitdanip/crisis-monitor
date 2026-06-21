@@ -101,7 +101,7 @@ export function AlertsPanel({ data }: { data: DashboardData }) {
                     className="flex items-start gap-3 px-3 py-2 rounded border-l-2 bg-zinc-900/40"
                     style={{ borderLeftColor: catColor }}
                   >
-                    <span className="text-[9px] font-mono text-zinc-500 mt-0.5">
+                    <span suppressHydrationWarning className="text-[9px] font-mono text-zinc-500 mt-0.5">
                       {new Date(alert.triggered_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
                     <div className="flex-1 min-w-0">

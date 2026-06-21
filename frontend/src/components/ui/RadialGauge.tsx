@@ -19,8 +19,8 @@ export function RadialGauge({ value, max, size = 160, color, label, sublabel }: 
   const fillLen = pct * circumference * (arcAngle / 360);
 
   return (
-    <div className="relative inline-flex flex-col items-center overflow-hidden" style={{ width: size, height: size }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <div className="relative inline-flex flex-col items-center overflow-hidden" style={{ width: size, height: size }} suppressHydrationWarning>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} suppressHydrationWarning>
         {/* Background arc */}
         <circle
           cx={cx} cy={cy} r={r}
@@ -30,6 +30,7 @@ export function RadialGauge({ value, max, size = 160, color, label, sublabel }: 
           strokeDasharray={`${circumference * (arcAngle / 360)} ${circumference}`}
           strokeLinecap="round"
           transform={`rotate(${startAngle} ${cx} ${cy})`}
+          suppressHydrationWarning
         />
         {/* Value arc */}
         <circle
@@ -40,11 +41,12 @@ export function RadialGauge({ value, max, size = 160, color, label, sublabel }: 
           strokeDasharray={`${fillLen} ${circumference}`}
           strokeLinecap="round"
           transform={`rotate(${startAngle} ${cx} ${cy})`}
+          suppressHydrationWarning
         />
       </svg>
-      <div className="absolute flex flex-col items-center" style={{ top: size * 0.38 }}>
-        <span className="font-mono font-bold tracking-tighter" style={{ fontSize: size * 0.28 }}>{value}</span>
-        <span className="text-zinc-500 mt-0.5" style={{ fontSize: size * 0.13 }}>/ {max}</span>
+      <div className="absolute flex flex-col items-center" style={{ top: size * 0.38 }} suppressHydrationWarning>
+        <span className="font-mono font-bold tracking-tighter" style={{ fontSize: size * 0.28 }} suppressHydrationWarning>{value}</span>
+        <span className="text-zinc-500 mt-0.5" style={{ fontSize: size * 0.13 }} suppressHydrationWarning>/ {max}</span>
         {label && <span className="text-zinc-400 mt-1" style={{ fontSize: size * 0.15 }}>{label}</span>}
         {sublabel && <span className="text-zinc-600" style={{ fontSize: size * 0.12 }}>{sublabel}</span>}
       </div>

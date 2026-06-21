@@ -25,7 +25,7 @@ export function Sparkline({ data, width = 80, height = 24, color = "#10b981", cl
   const stroke = color === "auto" ? trendColor : color;
 
   return (
-    <svg width={width} height={height} className={className}>
+    <svg width={width} height={height} className={className} suppressHydrationWarning>
       <polyline
         points={points.join(" ")}
         fill="none"

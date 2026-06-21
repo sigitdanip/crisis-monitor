@@ -9,7 +9,7 @@ interface ScorerNodeData {
 
 export function ScorerNode({ data }: { data: ScorerNodeData }) {
   const statusColor = data.status === "success" ? "#10b981" : data.status === "running" ? "#f59e0b" : "#ef4444";
-  const scoreColor = data.composite <= 4 ? "#10b981" : data.composite <= 8 ? "#f59e0b" : data.composite <= 12 ? "#f97316" : "#ef4444";
+  const scoreColor = data.composite <= 6 ? "#10b981" : data.composite <= 12 ? "#f59e0b" : data.composite <= 20 ? "#f97316" : data.composite <= 25 ? "#ef4444" : "#e11d48";
   return (
     <div
       className="px-5 py-3 flex flex-col items-center justify-center font-mono text-xs bg-zinc-800 border border-zinc-400"

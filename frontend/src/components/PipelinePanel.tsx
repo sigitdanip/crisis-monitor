@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ReactFlow,
   Background,
@@ -190,11 +190,22 @@ function buildLayout(status: PipelineStatus): { nodes: Node[]; edges: Edge[] } {
   return { nodes, edges };
 }
 
+function formatElapsed(ms: number | null): string {
+  if (ms === null || ms === undefined) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rs = s % 60;
+  return `${m}m ${rs}s`;
+}
+
 export function PipelinePanel() {
   const [status, setStatus] = useState<PipelineStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ponytail: detect mobile viewport for horizontal scrolling
   useEffect(() => {
@@ -204,7 +215,7 @@ export function PipelinePanel() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  const layout = buildLayout(status ?? { nodes: [], edges: [], last_run: null, total_duration_ms: 0, success_count: 0 });
+  const layout = buildLayout(status ?? { nodes: [], edges: [], last_run: null, total_duration_ms: 0, success_count: 0, progress: { running: false, started_at: null, elapsed_ms: null, current_node: null, completed_nodes: null, failed_node: null, estimated_remaining_ms: null } });
   const [nodes, setNodes, onNodesChange] = useNodesState(layout.nodes as any);
   const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges as any);
 
@@ -222,13 +233,32 @@ export function PipelinePanel() {
     }
   }, [setNodes, setEdges]);
 
+  // Initial load
   useEffect(() => { load(); }, [load]);
 
-  // ponytail: auto-refresh every 30s — enough for a daily pipeline
+  // Dynamic refresh interval based on pipeline running state
+  const isRunning = status?.progress?.running === true;
+
   useEffect(() => {
-    const i = setInterval(load, 30000);
-    return () => clearInterval(i);
-  }, [load]);
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    if (loading) return;
+
+    // Refresh every 2s when pipeline is running, 30s when idle
+    const intervalMs = isRunning ? 2000 : 30000;
+    intervalRef.current = setInterval(load, intervalMs);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [load, isRunning, loading]);
 
   if (loading) {
     return (
@@ -237,6 +267,16 @@ export function PipelinePanel() {
       </div>
     );
   }
+
+  const progress = status?.progress;
+  const progressBar = isRunning && progress?.started_at && progress?.estimated_remaining_ms != null
+    ? (() => {
+        const elapsed = progress.elapsed_ms ?? 0;
+        const totalEst = elapsed + (progress.estimated_remaining_ms ?? 150000);
+        const pct = Math.min(100, Math.max(0, Math.round((elapsed / totalEst) * 100)));
+        return { elapsed, pct };
+      })()
+    : null;
 
   return (
     <div className="flex-1 flex flex-col">
@@ -271,13 +311,58 @@ export function PipelinePanel() {
         </div>
       </div>
 
+      {/* Progress bar for running pipeline */}
+      {progressBar && (
+        <div className="h-1 bg-zinc-800 shrink-0">
+          <div
+            className="h-full bg-amber-500 transition-all duration-1000 ease-linear"
+            style={{ width: `${progressBar.pct}%` }}
+          />
+        </div>
+      )}
+
       {/* Footer Bar */}
       <div className="flex items-center justify-between px-4 py-2 border-t border-zinc-800 bg-zinc-950 text-[10px] font-mono text-zinc-600 shrink-0">
-        <span>
+        <span suppressHydrationWarning>
           Last run: {status?.last_run ? new Date(status.last_run).toLocaleString() : "Never"}
         </span>
         <span>Duration: {status?.total_duration_ms ? `${status.total_duration_ms}ms` : "—"}</span>
         <span>Success: {status?.success_count ?? 0}/{(status?.nodes?.length ?? 7)}</span>
+
+        {/* Live progress indicator */}
+        {isRunning && progress && (
+          <>
+            <span className="text-amber-500 animate-pulse font-bold uppercase tracking-wider">
+              RUNNING
+            </span>
+            <span className="text-zinc-400">
+              {progress.current_node ?? "Initializing..."}
+            </span>
+            <span className="text-zinc-500">
+              {formatElapsed(progress.elapsed_ms)}
+            </span>
+            {progressBar && (
+              <span className="text-zinc-600">
+                ~{formatElapsed(progress.estimated_remaining_ms)} left
+              </span>
+            )}
+          </>
+        )}
+
+        {/* Failed node indicator */}
+        {progress?.failed_node && (
+          <span className="text-red-400 px-1.5 py-0.5 rounded bg-red-900/30">
+            FAILED: {progress.failed_node}
+          </span>
+        )}
+
+        {/* Completed nodes count when running */}
+        {isRunning && progress?.completed_nodes && progress.completed_nodes.length > 0 && (
+          <span className="text-zinc-500">
+            {progress.completed_nodes.length} done
+          </span>
+        )}
+
         <span>Next: daily 08:00</span>
       </div>
     </div>

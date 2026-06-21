@@ -24,16 +24,14 @@ export function Header({ compositeScore, lastUpdated }: HeaderProps) {
       <div className="flex-1" />
 
       <div className="flex items-center gap-3 md:gap-4">
-        {lastUpdated && (
-          <span className="hidden sm:inline text-[10px] text-zinc-500 font-mono md:text-xs">
-            Updated: {new Date(lastUpdated).toLocaleString()}
-          </span>
-        )}
+        <span suppressHydrationWarning className="hidden sm:inline text-[10px] text-zinc-500 font-mono md:text-xs">
+          {lastUpdated ? `Updated: ${new Date(lastUpdated).toLocaleString()}` : '\u00A0'}
+        </span>
         <div className="flex items-center gap-1.5 md:gap-2">
           <span className="hidden sm:inline text-[10px] text-zinc-500 font-mono md:text-xs">COMPOSITE</span>
           <RadialGauge
             value={compositeScore}
-            max={16}
+            max={30}
             size={48}
             color={c.stroke}
           />

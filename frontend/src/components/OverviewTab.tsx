@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { DashboardData } from "@/types";
 import { getDotDisplayName, getPathwayName } from "@/types";
 import { compositeColor, END_STATE_COLORS, STATUS_COLORS, STATUS_ORDER, PATHWAY_COLORS } from "@/lib/colors";
@@ -59,7 +59,7 @@ function buildStories(data: DashboardData): StoryItem[] {
       title: `${name} — ${dot.status.toUpperCase()}`,
       body: summary,
       source: dot.sources?.slice(0, 200) || undefined,
-      indicators: (dot.key_signals ? (typeof dot.key_signals === "string" ? JSON.parse(dot.key_signals) : dot.key_signals) : []).slice(0, 5),
+      indicators: (dot.key_signals ?? []).slice(0, 5),
     });
   }
 
@@ -72,7 +72,7 @@ function buildStories(data: DashboardData): StoryItem[] {
       title: `${name} is now ACTIVE`,
       body: pw.description || "This pathway has crossed its activation threshold. Monitor closely.",
       source: undefined,
-      indicators: (pw.signals ? (typeof pw.signals === "string" ? JSON.parse(pw.signals) : pw.signals) : []),
+      indicators: (pw.signals ?? []),
     });
   }
 
@@ -112,8 +112,26 @@ export function OverviewTab({ data }: { data: DashboardData }) {
   // Dormant dots count
   const activeDotCount = dots.filter((d) => d.status !== "dormant").length;
 
-  // Alert sparkline (simulated — replace with real data)
-  const sparkData = Array.from({ length: 7 }, () => Math.floor(Math.random() * 5));
+  // Alert sparkline — computed from real alert timestamps, client-only.
+  const [sparkData, setSparkData] = useState<number[]>(() => Array.from({ length: 7 }, () => 0));
+  useEffect(() => {
+    const alerts = data.alerts ?? [];
+    const now = new Date();
+    const dayBuckets: number[] = Array.from({ length: 7 }, () => 0);
+
+    for (const alert of alerts) {
+      try {
+        const alertDate = new Date(alert.triggered_at);
+        const daysAgo = Math.floor((now.getTime() - alertDate.getTime()) / 86_400_000);
+        if (daysAgo >= 0 && daysAgo < 7) {
+          dayBuckets[6 - daysAgo] += 1;
+        }
+      } catch {
+        // skip malformed dates
+      }
+    }
+    setSparkData(dayBuckets);
+  }, [data.alerts]);
 
   return (
     <div className="flex-1 overflow-auto p-4 space-y-4 md:p-6 md:space-y-6">
@@ -127,11 +145,11 @@ export function OverviewTab({ data }: { data: DashboardData }) {
           <h3 className="text-xs font-mono text-zinc-500 mb-1">COMPOSITE</h3>
           <RadialGauge
             value={compositeScore}
-            max={16}
+            max={30}
             size={100}
             color={gaugeColor.stroke}
             label={gaugeColor.label}
-            sublabel="0-16"
+            sublabel="0-30"
           />
         </div>
 

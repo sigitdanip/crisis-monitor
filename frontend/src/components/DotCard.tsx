@@ -1,4 +1,5 @@
 "use client";
+import { useState, useEffect } from "react";
 import type { Dot, Indicator, Pathway } from "@/types";
 import { getDotDisplayName, getPathwayName } from "@/types";
 import { STATUS_COLORS } from "@/lib/colors";
@@ -17,27 +18,23 @@ export function DotCard({ dot, expanded, onToggle, indicators: allIndicators, pa
   const c = STATUS_COLORS[dot.status];
   const isCritical = dot.status === "critical";
 
-  // Parse key signals
-  let signals: string[] = [];
-  try {
-    const parsed = typeof dot.key_signals === "string" ? JSON.parse(dot.key_signals) : dot.key_signals;
-    signals = Array.isArray(parsed) ? parsed : (parsed?.signals ?? []);
-  } catch {
-    signals = dot.key_signals ? [dot.key_signals] : [];
-  }
+  // Parse key signals — server now returns parsed arrays
+  const signals: string[] = Array.isArray(dot.key_signals) ? dot.key_signals : [];
 
-  // Indicator sparkline data (find related)
-  const indicatorSpark = allIndicators.length > 0
-    ? Array.from({ length: 7 }, () => Math.random() * 5 + 5)
-    : [];
+  // Indicator sparkline data — computed only on client to avoid SSR Math.random() mismatch
+  const [indicatorSpark, setIndicatorSpark] = useState<number[]>(() => []);
+  useEffect(() => {
+    const hasIndicators = allIndicators.length > 0;
+    setIndicatorSpark(
+      hasIndicators ? Array.from({ length: 7 }, () => Math.random() * 5 + 5) : [],
+    );
+  }, [allIndicators.length]);
 
   // Related pathways
   const relatedPathways = (pathways ?? []).filter(
     (pw) => {
-      try {
-        const pwSignals = typeof pw.signals === "string" ? JSON.parse(pw.signals) : pw.signals;
-        return JSON.stringify(pwSignals).includes(dot.dot_name);
-      } catch { return false; }
+      const pwSignals: string[] = Array.isArray(pw.signals) ? pw.signals : [];
+      return pwSignals.includes(dot.dot_name) || JSON.stringify(pwSignals).includes(dot.dot_name);
     }
   );
 

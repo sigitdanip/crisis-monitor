@@ -40,12 +40,30 @@ export interface Indicator {
   narrative?: string;
 }
 
+export interface DotAnalysisItem {
+  status: string;
+  summary: string;
+  key_signals: string[];
+  sources?: string;
+}
+
+export type DotSummary = Record<string, DotAnalysisItem>;
+
+export interface PathwayAnalysisItem {
+  active: boolean;
+  triggered_by: string[];
+  name: string;
+  description: string;
+}
+
+export type PathwaySummary = Record<string, PathwayAnalysisItem>;
+
 export interface Dot {
   dot_number: number;
   dot_name: string;
   status: DotStatus;
   summary: string;
-  key_signals: string;
+  key_signals: string[];
   sources?: string;
 }
 
@@ -54,7 +72,7 @@ export interface Pathway {
   name: string;
   description: string;
   active: number;
-  signals: string;
+  signals: string[];
 }
 
 /** Map pathway keys to human-readable names. Used as fallback when
@@ -89,11 +107,11 @@ export type FiveQuestions = Record<string, KeyQuestion>;
 export interface Report {
   id: number;
   date: string;
-  dot_summary: string;
-  pathway_summary: string;
+  dot_summary: DotSummary;
+  pathway_summary: PathwaySummary;
   end_state: string;
   synthesis: string;
-  five_questions: string | FiveQuestions;
+  five_questions: FiveQuestions;
   confidence: string;
   composite_score: number;
   briefing?: string;
@@ -128,12 +146,23 @@ export interface PipelineNode {
   error?: string;
 }
 
+export interface PipelineProgress {
+  running: boolean;
+  started_at: string | null;
+  elapsed_ms: number | null;
+  current_node: string | null;
+  completed_nodes: string[] | null;
+  failed_node: string | null;
+  estimated_remaining_ms: number | null;
+}
+
 export interface PipelineStatus {
   nodes: PipelineNode[];
   edges: { source: string; target: string }[];
   last_run: string | null;
   total_duration_ms: number;
   success_count: number;
+  progress: PipelineProgress;
 }
 
 export interface HistoryReport {
@@ -143,4 +172,32 @@ export interface HistoryReport {
   confidence: string;
   synthesis: string;
   briefing?: string;
+}
+
+// Timeseries API types
+export interface TimeseriesPoint {
+  recorded_at: string;
+  value: number;
+  status: string;
+}
+
+export interface TimeseriesSeries {
+  indicator_name: string;
+  display_name: string;
+  category: string;
+  unit: string;
+  points: TimeseriesPoint[];
+}
+
+export interface CompositeTimeseriesPoint {
+  recorded_at: string;
+  composite_score: number;
+  interpretation: string;
+}
+
+export interface TimeseriesResponse {
+  series: TimeseriesSeries[];
+  composite_series: CompositeTimeseriesPoint[];
+  from: string;
+  to: string;
 }

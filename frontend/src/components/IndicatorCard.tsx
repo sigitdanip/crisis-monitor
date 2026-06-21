@@ -45,7 +45,7 @@ export function IndicatorCard({ indicator }: { indicator: Indicator }) {
       </div>
 
       <div className="flex items-center justify-between mt-1">
-        <span className="text-xs font-mono text-zinc-600">
+        <span suppressHydrationWarning className="text-xs font-mono text-zinc-600">
           {indicator.fetched_at ? new Date(indicator.fetched_at).toLocaleDateString() : "N/A"}
         </span>
         <span className="text-xs font-mono text-zinc-600">

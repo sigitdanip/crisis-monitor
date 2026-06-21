@@ -17,7 +17,7 @@ export function IndicatorsPanel({ data }: { data: DashboardData }) {
     return map;
   }, [data.indicators]);
 
-  const categories = Array.from(byCategory.entries()).sort(([a], [b]) => a.localeCompare(b));
+  const categories = Array.from(byCategory.entries()).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
 
   function toggleCat(cat: string) {
     setExpandedCats((prev) => {

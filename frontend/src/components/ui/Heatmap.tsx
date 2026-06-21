@@ -15,7 +15,7 @@ export function Heatmap({ data, xLabels, yLabels, cellSize = 14, colorScale = DE
   const totalH = yLabels.length * (cellSize + gap) + gap + 20;
 
   return (
-    <svg width={totalW} height={totalH} viewBox={`0 0 ${totalW} ${totalH}`} className="font-mono text-[9px]">
+    <svg width={totalW} height={totalH} viewBox={`0 0 ${totalW} ${totalH}`} className="font-mono text-[9px]" suppressHydrationWarning>
       {data.map((cell) => {
         const cx = 60 + cell.x * (cellSize + gap) + gap;
         const cy = 10 + cell.y * (cellSize + gap) + gap;

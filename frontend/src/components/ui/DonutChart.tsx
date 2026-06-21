@@ -24,8 +24,8 @@ export function DonutChart({ segments, size = 120, thickness = 18, centerLabel, 
   });
 
   return (
-    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }} suppressHydrationWarning>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} suppressHydrationWarning>
         {arcs.map((arc) => (
           <circle
             key={arc.label}
