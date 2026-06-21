@@ -351,6 +351,28 @@ async def node_save_to_db(state: CrisisState) -> CrisisState:
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (slug, display_name, category, flag_value, unit, status, trigger, narrative),
                 )
+            else:
+                # No data available (val is None from missing-data shim, or unsupported type).
+                # Write a row with value=NULL and status='unknown' so every registered
+                # indicator has a row in indicator_history.
+                meta = INDICATOR_META.get(slug, {})
+                display_name = meta.get("name", slug)
+                category = meta.get("category", "")
+                unit = meta.get("unit", "")
+                trigger = meta.get("trigger", "")
+                narrative = narratives.get(slug, "")
+                # Fall back to news-derived narrative
+                if not narrative and slug in news_narratives:
+                    narrative = news_narratives[slug]
+                # Safety net: ensure every NULL row has some narrative
+                if not narrative:
+                    narrative = "No data and no recent news coverage."
+                conn.execute(
+                    """INSERT INTO indicator_history
+                       (indicator_name, display_name, category, value, unit, status, trigger_level, narrative)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (slug, display_name, category, None, unit, "unknown", trigger, narrative),
+                )
 
         # Save dot analyses
         dots = state["dot_analyses"] or {}
@@ -508,8 +530,17 @@ async def run_pipeline(
     graph = get_graph()
     t0 = time.time()
 
+    # Missing-data shim: ensure all 30 registered indicators appear in every snapshot.
+    # Any INDICATOR_META slug not in the input dict gets added as None so the pipeline
+    # knows about it and can generate a fallback narrative.
+    from src.agent.indicator_narrator import INDICATOR_META
+    full_indicators = dict(indicators)  # shallow copy to avoid mutating caller's dict
+    for slug in INDICATOR_META:
+        if slug not in full_indicators:
+            full_indicators[slug] = None
+
     initial_state: CrisisState = {
-        "indicators": indicators,
+        "indicators": full_indicators,
         "news": news,
         "composite_score": None,
         "indicator_narratives": None,
