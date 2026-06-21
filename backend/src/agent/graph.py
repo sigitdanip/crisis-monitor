@@ -1,6 +1,6 @@
 """LangGraph StateGraph — Crisis Monitor pipeline.
 
-Nodes: Data Fetchers → Composite Scorer → Indicator Narrator →
+Nodes: Data Fetchers → Composite Scorer → Alerts Engine → Indicator Narrator →
        5 Dot Analyzers (parallel) → Pathway Synthesizer →
        End State Assessor → DB Save.
 
@@ -8,13 +8,14 @@ Each node tracks its own timing. State is typed with TypedDict.
 """
 import time
 import json
+import logging
 import asyncio
 from datetime import datetime, timezone
-from typing import TypedDict, Dict, Any, List, Optional
+from typing import TypedDict, Dict, Any, List, Optional, Callable, Awaitable
 from langgraph.graph import StateGraph, END
 
 from src.agent.llm import get_llm, extract_json
-from src.agent.composite_scorer import score_composite
+from src.agent.composite_scorer_v2 import score_composite
 from src.agent.dot_analyzers import (
     analyze_geopolitical,
     analyze_food_debt,
@@ -25,8 +26,10 @@ from src.agent.dot_analyzers import (
 from src.agent.pathway_synthesizer import synthesize_pathways
 from src.agent.end_state import assess_end_state
 from src.agent.indicator_narrator import generate_indicator_narratives
+from src.agent.alerts import run_alerts
 from src.db.database import get_db
 
+logger = logging.getLogger(__name__)
 
 # Module-level semaphore to cap concurrent LLM calls during dot analysis.
 # Empirically: 5 concurrent calls caused 80% rate-limit fallback rate;
@@ -74,6 +77,7 @@ class CrisisState(TypedDict):
     total_duration_ms: Optional[float]
     success_count: int
     errors: List[str]
+    trigger_source: str
 
 
 def _now_iso() -> str:
@@ -107,18 +111,55 @@ async def node_composite_scorer(state: CrisisState) -> CrisisState:
     """Run rule-based composite scorer on all indicators."""
     t0 = time.time()
     try:
-        result = score_composite(state["indicators"])
+        # Fetch gold 200-day MA for MA-deviation scoring (per Q3 decision)
+        gold_ma_200 = None
+        try:
+            from src.fetchers.market import fetch_gold_200d_ma
+            import asyncio as _asyncio
+            gold_ma_200 = await _asyncio.to_thread(fetch_gold_200d_ma)
+        except Exception:
+            pass  # Graceful degradation: gold scores 0 without MA
+
+        result = score_composite(state["indicators"], gold_ma_200=gold_ma_200)
         state["composite_score"] = result
         dur = (time.time() - t0) * 1000
         _record_timing(state, "Composite Scorer", "scorer", "success", dur,
-                       input_summary=f"{len(state['indicators'])} indicators",
-                       output_summary=f"Score {result['composite']}/16 ({result['interpretation']})")
+                       input_summary=f"{result.get('available_count', 0)}/{result.get('total_indicators', 30)} indicators",
+                       output_summary=f"Score {result['composite']}/30 ({result['interpretation']})")
         state["success_count"] += 1
     except Exception as e:
         dur = (time.time() - t0) * 1000
         _record_timing(state, "Composite Scorer", "scorer", "error", dur, error=str(e))
         state["errors"].append(f"Composite scorer: {e}")
-        state["composite_score"] = {"composite": 0, "interpretation": "error", "category_scores": {}}
+        state["composite_score"] = {"composite": 0, "interpretation": "error", "category_scores": {}, "per_indicator_scores": {}}
+    return state
+
+
+async def node_alerts(state: CrisisState) -> CrisisState:
+    """Run alerts engine on composite scorer output — detect transitions + write alerts."""
+    t0 = time.time()
+    try:
+        composite = state.get("composite_score") or {}
+        if composite.get("per_indicator_scores"):
+            # Extract gold_ma_200 from indicator_details debug info if present
+            gold_details = composite.get("indicator_details", {}).get("gold_price", {})
+            gold_debug = gold_details.get("debug", {})
+            gold_ma_200 = gold_debug.get("ma_200") if gold_debug.get("method") == "ma_deviation" else None
+
+            count = run_alerts(composite, state["indicators"], gold_ma_200=gold_ma_200)
+            dur = (time.time() - t0) * 1000
+            _record_timing(state, "Alerts Engine", "alerts", "success", dur,
+                           output_summary=f"{count} alerts fired")
+            if count > 0:
+                state["success_count"] += 1
+        else:
+            dur = (time.time() - t0) * 1000
+            _record_timing(state, "Alerts Engine", "alerts", "success", dur,
+                           output_summary="No per-indicator scores — skipped")
+    except Exception as e:
+        dur = (time.time() - t0) * 1000
+        _record_timing(state, "Alerts Engine", "alerts", "error", dur, error=str(e))
+        state["errors"].append(f"Alerts engine: {e}")
     return state
 
 
@@ -126,7 +167,9 @@ async def node_indicator_narrator(state: CrisisState) -> CrisisState:
     """Generate 1-sentence plain-language narrative context per indicator via LLM."""
     t0 = time.time()
     try:
-        narratives = await generate_indicator_narratives(state["indicators"])
+        narratives = await generate_indicator_narratives(
+            state["indicators"], news=state.get("news")
+        )
         state["indicator_narratives"] = narratives
         dur = (time.time() - t0) * 1000
         _record_timing(state, "Indicator Narrator", "agent", "success", dur,
@@ -346,8 +389,8 @@ async def node_save_to_db(state: CrisisState) -> CrisisState:
         briefing = end_state.get("briefing", "")
         conn.execute(
             """INSERT OR REPLACE INTO daily_reports
-               (date, dot_summary, pathway_summary, end_state, synthesis, five_questions, confidence, composite_score, briefing)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (date, dot_summary, pathway_summary, end_state, synthesis, five_questions, confidence, composite_score, briefing, trigger_source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 today,
                 json.dumps(state["dot_analyses"] or {}),
@@ -358,6 +401,7 @@ async def node_save_to_db(state: CrisisState) -> CrisisState:
                 str(end_state.get("confidence", 0)),
                 state["composite_score"]["composite"] if state["composite_score"] else 0,
                 briefing,
+                state.get("trigger_source", ""),
             ),
         )
         conn.commit()
@@ -384,6 +428,7 @@ def build_graph() -> StateGraph:
 
     # Add nodes
     graph.add_node("composite_scorer", node_composite_scorer)
+    graph.add_node("alerts", node_alerts)
     graph.add_node("indicator_narrator", node_indicator_narrator)
     graph.add_node("dot_analyzers", node_dot_analyzers)
     graph.add_node("pathway_synthesizer", node_pathway_synthesizer)
@@ -391,10 +436,11 @@ def build_graph() -> StateGraph:
     graph.add_node("save_to_db", node_save_to_db)
 
     # Wire edges — sequential pipeline
-    # composite_scorer → indicator_narrator → dot_analyzers → pathway_synthesizer
+    # composite_scorer → alerts → indicator_narrator → dot_analyzers → pathway_synthesizer
     # → end_state_assessor → save_to_db → END
     graph.set_entry_point("composite_scorer")
-    graph.add_edge("composite_scorer", "indicator_narrator")
+    graph.add_edge("composite_scorer", "alerts")
+    graph.add_edge("alerts", "indicator_narrator")
     graph.add_edge("indicator_narrator", "dot_analyzers")
     graph.add_edge("dot_analyzers", "pathway_synthesizer")
     graph.add_edge("pathway_synthesizer", "end_state_assessor")
@@ -416,15 +462,45 @@ def get_graph():
     return _graph
 
 
+# Human-readable labels for each pipeline node (used by progress reporting).
+NODE_LABELS: Dict[str, str] = {
+    "composite_scorer": "Composite Scorer",
+    "alerts": "Alerts Engine",
+    "indicator_narrator": "Indicator Narrator",
+    "dot_analyzers": "Dot Analyzers",
+    "pathway_synthesizer": "Pathway Synthesizer",
+    "end_state_assessor": "End State Assessor",
+    "save_to_db": "Save to DB",
+}
+
+
+# Graph node ids in execution order
+_NODE_ORDER = [
+    "composite_scorer",
+    "alerts",
+    "indicator_narrator",
+    "dot_analyzers",
+    "pathway_synthesizer",
+    "end_state_assessor",
+    "save_to_db",
+]
+
+
 async def run_pipeline(
     indicators: Dict[str, Any],
     news: Optional[List[Dict[str, str]]] = None,
+    source: str = "api",
+    progress_callback: Optional[Callable[[str, str, Optional[str]], Awaitable[None]]] = None,
 ) -> Dict[str, Any]:
     """Run the full crisis monitor pipeline.
 
     Args:
         indicators: Dict of indicator name → value pairs.
         news: Optional list of news headline dicts.
+        progress_callback: Optional async callback for live progress.
+            Called as await progress_callback(node_label, event, error_message)
+            where event is "started" or "completed", and error_message is
+            None for "started" and set for "completed" if the node failed.
 
     Returns:
         Pipeline results dict with node timing data.
@@ -446,9 +522,53 @@ async def run_pipeline(
         "total_duration_ms": None,
         "success_count": 0,
         "errors": [],
+        "trigger_source": source,
     }
 
-    final_state = await graph.ainvoke(initial_state)
+    if progress_callback is None:
+        # Fast path: no progress tracking needed
+        final_state = await graph.ainvoke(initial_state)
+    else:
+        # Streaming path: track per-node progress via astream (values mode)
+        # astream in "values" mode yields the full state after each node.
+        final_state = None
+        node_idx = 0
+
+        async for state in graph.astream(initial_state, stream_mode="values"):
+            # state is the full CrisisState after a node completed.
+            # Emit "started" for the next node (first iteration is initial state).
+            if node_idx < len(_NODE_ORDER):
+                label = NODE_LABELS.get(_NODE_ORDER[node_idx], _NODE_ORDER[node_idx])
+                await progress_callback(label, "started", None)
+
+            # Emit "completed" for the node that just finished (skip index 0 = before any node)
+            if node_idx > 0:
+                prev_node = _NODE_ORDER[node_idx - 1]
+                prev_label = NODE_LABELS.get(prev_node, prev_node)
+                # Check if the node that just finished had an error
+                node_timing = state.get("node_timing", [])
+                error_msg = None
+                for rec in node_timing:
+                    if rec.get("label") == prev_label and rec.get("status") in ("error", "fallback"):
+                        error_msg = rec.get("error", "unknown error")
+                        break
+                await progress_callback(prev_label, "completed", error_msg)
+
+            node_idx += 1
+            final_state = state
+
+        # Emit "completed" for the final node
+        if node_idx > 0 and node_idx <= len(_NODE_ORDER) + 1:
+            prev_node = _NODE_ORDER[node_idx - 2]  # -2 because we incremented past it
+            if prev_node:
+                prev_label = NODE_LABELS.get(prev_node, prev_node)
+                node_timing = final_state.get("node_timing", []) if final_state else []
+                error_msg = None
+                for rec in node_timing:
+                    if rec.get("label") == prev_label and rec.get("status") in ("error", "fallback"):
+                        error_msg = rec.get("error", "unknown error")
+                        break
+                await progress_callback(prev_label, "completed", error_msg)
 
     total_ms = (time.time() - t0) * 1000
     final_state["completed_at"] = _now_iso()

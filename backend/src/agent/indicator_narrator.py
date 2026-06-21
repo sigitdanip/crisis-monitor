@@ -8,7 +8,7 @@ ponytail: simple string formatting, no NLP. LLMs are better at consuming structu
 natural language than raw JSON — this is a formatting layer, not an intelligence layer.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 
 # ── Indicator metadata registry ──────────────────────────────────────────
@@ -261,24 +261,84 @@ For each indicator below, write ONE short sentence (max 20 words) explaining wha
 Each indicator is listed as: slug: display_name: value unit (STATUS). Trigger: threshold.
 Use the SLUG (e.g. 'brent_price', 'vix', 'caixin_pmi') as the JSON key.
 
+Indicators marked "NO DATA" have no numerical value but still need a narrative.
+For these, write a 1-sentence narrative summarizing what the news reports about this topic.
+If no relevant news is listed, write "No data and no recent news coverage."
+
 Indicators:
 {indicators_text}
 
 Return ONLY a JSON object mapping indicator slug to context string:
-{{"brent_price": "context sentence", "vix": "context sentence", ...}}"""
+{"brent_price": "context sentence", "vix": "context sentence", ...}"""
 
 
-async def generate_indicator_narratives(indicators: Dict[str, Any]) -> Dict[str, str]:
+def _match_news_to_indicator(slug: str, news: List[Dict[str, str]] | None) -> str:
+    """Find relevant news snippets for an indicator via simple substring match.
+
+    Matches the indicator slug name (split by underscore) and its display name
+    (from INDICATOR_META) against news title/description fields, case-insensitive.
+    No embeddings or vector search — fast and transparent.
+
+    Args:
+        slug: Indicator slug (e.g., 'hormuz_closure').
+        news: List of news dicts with 'title' and optional 'description' keys.
+
+    Returns:
+        Newline-separated matching news snippets (title + excerpt), or empty string.
+    """
+    if not news:
+        return ""
+
+    meta = INDICATOR_META.get(slug, {})
+    display_name = meta.get("name", slug)
+
+    # Build search terms: slug words + display name
+    slug_words = slug.lower().replace("_", " ").split()
+    search_terms = set(slug_words)
+    for word in display_name.lower().split():
+        search_terms.add(word)
+
+    matches: list[str] = []
+    for item in news:
+        title = (item.get("title") or "").lower()
+        description = (item.get("description") or "").lower()
+        combined = f"{title} {description}"
+
+        # Check if any search term appears in the news item
+        if any(term in combined for term in search_terms):
+            snippet = item.get("title", "")
+            desc = item.get("description", "")
+            if desc:
+                snippet += f" — {desc[:150]}"
+            matches.append(snippet)
+
+    return "\n".join(matches[:5])  # cap at 5 most relevant snippets
+
+
+async def generate_indicator_narratives(
+    indicators: Dict[str, Any],
+    news: Optional[List[Dict[str, str]]] = None,
+) -> Dict[str, str]:
     """Generate 1-sentence plain-language narratives for each indicator via LLM.
+
+    When an indicator has no numerical data (value is None or empty string),
+    the narrator includes a NO DATA marker and relevant news snippets so
+    the LLM can fall back to news-based context. Indicators with value=None
+    or value='' still get a narrative entry in the returned dict.
 
     Args:
         indicators: Flat dict of indicator_slug -> value. Keys should match INDICATOR_META.
+        news: Optional list of news dicts with 'title' key for fallback context.
 
     Returns:
         Dict of indicator_slug -> narrative string. Empty dict on LLM failure.
     """
     if not indicators:
         return {}
+
+    # Track which slugs are NO DATA so we can inject news context and
+    # force the LLM to produce a narrative for them.
+    no_data_slugs: list[str] = []
 
     # Build context lines using existing narrate_one for structured input
     lines = []
@@ -293,6 +353,23 @@ async def generate_indicator_narratives(indicators: Dict[str, Any]) -> Dict[str,
             # News-derived flag indicator — narrate_one already handles the dict format
             line = narrate_one(slug, value)
             lines.append(f"  {slug}: {line}")
+        elif value is None or (isinstance(value, str) and not value):
+            # No numerical data — emit NO DATA marker so the LLM knows this
+            # indicator exists and needs a news-fallback narrative
+            meta = INDICATOR_META.get(slug, {})
+            display_name = meta.get("name", slug)
+            news_snippet = _match_news_to_indicator(slug, news)
+            no_data_slugs.append(slug)
+            if news_snippet:
+                lines.append(
+                    f"  {slug}: {display_name}: NO DATA — news fallback needed.\n"
+                    f"    Relevant news:\n"
+                    f"      {news_snippet}"
+                )
+            else:
+                lines.append(
+                    f"  {slug}: {display_name}: NO DATA — no relevant news found."
+                )
 
     if not lines:
         return {}
@@ -303,7 +380,14 @@ async def generate_indicator_narratives(indicators: Dict[str, Any]) -> Dict[str,
         from src.agent.llm import call_llm_with_retry
         prompt = NARRATOR_PROMPT.replace("{indicators_text}", indicators_text)
         result, _ = await call_llm_with_retry(prompt, temperature=0.4)
-        return result if isinstance(result, dict) else {}
+        if isinstance(result, dict):
+            # Ensure no-data slugs have a narrative entry even if the LLM
+            # skipped them (shouldn't happen with the updated prompt, but be safe)
+            for slug in no_data_slugs:
+                if slug not in result or not result[slug]:
+                    result[slug] = "No data and no recent news coverage."
+            return result
+        return {}
     except Exception:
         return {}  # graceful degradation
 
