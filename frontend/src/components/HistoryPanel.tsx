@@ -2,9 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import type { DashboardData, HistoryReport } from "@/types";
 import { fetchHistory } from "@/lib/api";
-import { STATUS_COLORS } from "@/lib/colors";
 import { Heatmap } from "./ui/Heatmap";
-import { Sparkline } from "./ui/Sparkline";
 
 export function HistoryPanel({ data: liveData }: { data: DashboardData }) {
   const [history, setHistory] = useState<HistoryReport[]>([]);
@@ -37,7 +35,6 @@ export function HistoryPanel({ data: liveData }: { data: DashboardData }) {
     const yLabels = dots.length > 0
       ? dots.map((d) => `D${d.dot_number}`)
       : ["D0"];
-    const xLen = xLabels.length || 1;
     const data = yLabels.flatMap((_, yIdx) =>
       xLabels.map((_, xIdx) => ({
         x: xIdx,

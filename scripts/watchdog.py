@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Crisis Monitor watchdog — polls /api/system/health and alerts on issues.
+"""Crisis Monitor watchdog — polls /health and alerts on issues.
 
 Alerts on:
   - API down (status != "ok")
@@ -18,8 +18,8 @@ import urllib.request
 import sys
 from datetime import datetime, timezone, timedelta
 
-HEALTH_URL = "http://localhost:8000/api/system/health"
-TIMEOUT_SEC = 10
+HEALTH_URL = "http://localhost:8001/health"
+TIMEOUT_SEC = 15
 STALE_PIPELINE_HOURS = 26
 MAX_ERRORS = 5
 
@@ -52,7 +52,7 @@ def main() -> int:
     data = fetch_health()
     if data is None:
         # API entirely down
-        print("ALERT: Crisis Monitor API is DOWN — /api/system/health returned no response")
+        print("ALERT: Crisis Monitor API is DOWN — /health returned no response")
         return 1
 
     alerts = []

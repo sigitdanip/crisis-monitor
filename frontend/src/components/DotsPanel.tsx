@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import type { Dot, DashboardData } from "@/types";
+import type { DashboardData } from "@/types";
 import { STATUS_ORDER } from "@/lib/colors";
 import { DotCard } from "./DotCard";
 

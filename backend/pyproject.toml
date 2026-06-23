@@ -14,4 +14,5 @@ dependencies = [
     "feedparser",
     "beautifulsoup4",
     "lxml",
+    "apscheduler>=3.10",
 ]

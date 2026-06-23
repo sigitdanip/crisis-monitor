@@ -2,7 +2,7 @@
 
 Validates all AC criteria:
 - LLM helper uses opencode.ai/zen/go/v1
-- Composite scorer returns valid 0-16
+- Composite scorer returns valid 0-30
 - Each dot analyzer prompt complete
 - StateGraph compiles
 - Graph runs full pipeline with fallbacks
@@ -65,84 +65,87 @@ def test_extract_json():
 # ============================================================
 
 def test_composite_scorer_normal():
-    """AC: Composite scorer returns valid 0-16 — normal case."""
-    from src.agent.composite_scorer import score_composite
+    """AC: Composite scorer returns valid 0-30 — normal case."""
+    from src.agent.composite_scorer_v2 import score_composite
 
+    # All indicators at baseline → score should be 0
     result = score_composite({
-        "brent_price": 78,
-        "caixin_pmi": 51.5,
-        "ig_oas": 120,
-        "hy_oas": 350,
-        "fao_monthly_change_pct": 1.0,
-        "btp_bund_spread": 180,
-        "protest_countries": 0,
+        "brent_oil": 75, "wti_oil": 70, "eu_gas_storage": 85, "natgas_henry_hub": 3.0,
+        "fao_food_price_index": 110, "wheat_futures": 5.5, "corn_futures": 4.0, "rice_price": 14,
+        "us_ism_manufacturing": 50, "china_caixin_pmi": 50, "eurozone_manufacturing_pmi": 50,
+        "us_jobless_claims": 230,
+        "vix": 15, "move_bond_volatility": 90, "ted_spread": 20, "credit_spread": 120,
+        "dxy_index": 100, "eur_usd": 1.10, "usd_cny": 7.0,
+        "copper_price": 3.8, "silver_price": 28,
+        "baltic_dry_index": 1300, "scfi": 2000,
+        "global_terrorism_index": 4.5,
+        "hormuz_strait": "normal", "taiwan_strait_tension": "normal",
+        "russia_ukraine_conflict": "normal", "middle_east_conflict": "normal",
+        "china_taiwan_tension": "normal",
     })
-    assert 0 <= result["composite"] <= 16
-    assert result["composite"] == 0
-    assert result["interpretation"] == "monitor"
+    assert 0 <= result["composite"] <= 30
+    assert result["composite"] == 0.0
+    assert result["interpretation"] == "normal"
     assert set(result["category_scores"].keys()) == {
-        "geopolitical", "energy", "credit_financial", "em_currency",
-        "food", "china", "debt_sovereign", "social_political",
+        "energy", "food", "economic", "financial", "currency",
+        "metals", "supply_chain", "geopolitical",
     }
 
 
 def test_composite_scorer_elevated():
-    """Composite scorer — elevated (5-8)."""
-    from src.agent.composite_scorer import score_composite
+    """Composite scorer — elevated (12-20)."""
+    from src.agent.composite_scorer_v2 import score_composite
 
-    # Energy elevated (Brent $95), Credit elevated (IG 160), Food elevated
+    # Multiple indicators at or near breach → should be elevated
     result = score_composite({
-        "brent_price": 95,
-        "ig_oas": 160,
-        "hy_oas": 450,
-        "cme_grains_monthly_pct": 12,
-        "caixin_pmi": 49,
-        "btp_bund_spread": 260,
-        "protest_countries": 2,
+        "brent_oil": 95,  # above breach (90)
+        "wti_oil": 85,    # at breach
+        "vix": 25,        # at breach
+        "credit_spread": 200,  # at breach
+        "usd_cny": 7.2,   # at breach
     })
-    assert result["composite"] >= 3, f"Expected elevated, got {result['composite']}"
-    assert result["interpretation"] in ("monitor", "elevated", "high", "crisis")
+    assert result["composite"] >= 10, f"Expected elevated, got {result['composite']}"
+    assert result["interpretation"] in ("normal", "monitor", "elevated", "alert", "critical")
 
 
 def test_composite_scorer_crisis():
-    """Composite scorer — crisis (13-16)."""
-    from src.agent.composite_scorer import score_composite
+    """Composite scorer — critical (25-30)."""
+    from src.agent.composite_scorer_v2 import score_composite
 
+    # All 30 indicators at or above critical
     result = score_composite({
-        "brent_price": 115,
-        "ig_oas": 220,
-        "hy_oas": 650,
-        "caixin_pmi": 46,
-        "china_property_default": 1,
-        "btp_bund_spread": 280,
-        "cds_doubling": 1,
-        "protest_countries": 4,
-        "govt_crisis": 1,
-        "us_nato_withdrawal": 1,
-        "idr_breach": 1,
-        "try_breach": 1,
-        "egp_breach": 1,
-        "fao_monthly_change_pct": 12,
+        "brent_oil": 110, "wti_oil": 105, "eu_gas_storage": 60, "natgas_henry_hub": 7.0,
+        "fao_food_price_index": 150, "wheat_futures": 9.0, "corn_futures": 7.0, "rice_price": 20,
+        "us_ism_manufacturing": 45, "china_caixin_pmi": 46, "eurozone_manufacturing_pmi": 45,
+        "us_jobless_claims": 320,
+        "vix": 35, "move_bond_volatility": 150, "ted_spread": 80, "credit_spread": 300,
+        "dxy_index": 110, "eur_usd": 1.00, "usd_cny": 7.4,
+        "copper_price": 4.5, "silver_price": 45,
+        "baltic_dry_index": 2000, "scfi": 4000,
+        "global_terrorism_index": 7.5,
+        "hormuz_strait": "closure", "taiwan_strait_tension": "high",
+        "russia_ukraine_conflict": "major", "middle_east_conflict": "widespread",
+        "china_taiwan_tension": "critical",
     })
-    assert result["composite"] >= 13, f"Expected crisis, got {result['composite']}"
-    assert result["interpretation"] == "crisis"
+    assert result["composite"] >= 25, f"Expected critical, got {result['composite']}"
+    assert result["interpretation"] == "critical"
 
 
 def test_composite_scorer_edge_cases():
     """Composite scorer — edge cases (missing data, None values)."""
-    from src.agent.composite_scorer import score_composite
+    from src.agent.composite_scorer_v2 import score_composite
 
     # Empty indicators
     result = score_composite({})
-    assert result["composite"] == 0
+    assert result["composite"] == 0.0
 
     # None values shouldn't crash
     result = score_composite({
-        "brent_price": None,
+        "brent_oil": None,
         "caixin_pmi": None,
         "ig_oas": None,
     })
-    assert result["composite"] == 0
+    assert result["composite"] == 0.0
 
 
 # ============================================================
@@ -374,7 +377,7 @@ def test_pathway_fallback():
         assert "active" in result[key]
     assert result["dominant_pathway"] == "none"
 
-    result = _fallback_pathways({"composite": 14, "interpretation": "crisis"})
+    result = _fallback_pathways({"composite": 20, "interpretation": "alert"})
     assert result["pathway_d"]["active"] is True
     assert result["dominant_pathway"] == "D"
 
@@ -401,9 +404,9 @@ def test_end_state_fallback():
         assert "question" in result[q]
         assert "answer" in result[q]
 
-    # Crisis state
+    # Crisis state (score >= 20 with active pathway_d)
     result = _fallback_end_state(
-        {"composite": 14, "interpretation": "crisis"},
+        {"composite": 20, "interpretation": "alert"},
         {"pathway_d": {"active": True}},
     )
     assert result["end_state"] == "systemic_collapse"
@@ -418,23 +421,23 @@ def test_fallback_briefing_ranges():
 
     base_pathways = {"pathway_d": {"active": False}}
 
-    # containment (0-4)
-    result = _fallback_end_state({"composite": 0, "interpretation": "monitor"}, base_pathways)
+    # containment (0-6)
+    result = _fallback_end_state({"composite": 0, "interpretation": "normal"}, base_pathways)
     assert "contained" in result["briefing"].lower()
     assert "{" not in result["briefing"], "Briefing has unformatted templates"
 
-    # fragmented stability mid-range (5-8)  
-    result = _fallback_end_state({"composite": 6, "interpretation": "elevated"}, base_pathways)
+    # monitor (6-12)  
+    result = _fallback_end_state({"composite": 8, "interpretation": "monitor"}, base_pathways)
     assert "briefing" in result
     assert len(result["briefing"]) > 100
 
-    # elevated (9-12)
-    result = _fallback_end_state({"composite": 10, "interpretation": "high"}, base_pathways)
+    # elevated (12-20)
+    result = _fallback_end_state({"composite": 15, "interpretation": "elevated"}, base_pathways)
     assert "briefing" in result
     assert len(result["briefing"]) > 100
 
-    # crisis (13+)
-    result = _fallback_end_state({"composite": 15, "interpretation": "crisis"},
+    # critical (25+)
+    result = _fallback_end_state({"composite": 26, "interpretation": "critical"},
                                   {"pathway_d": {"active": True}})
     assert "collapse" in result["briefing"].lower()
 
@@ -492,7 +495,7 @@ def test_full_pipeline_with_mock_data():
 
     # Composite score
     assert result["composite_score"] is not None
-    assert 0 <= result["composite_score"]["composite"] <= 16
+    assert 0 <= result["composite_score"]["composite"] <= 30
 
     # Dot analyses (should have fallback data since no API key)
     assert result["dot_analyses"] is not None

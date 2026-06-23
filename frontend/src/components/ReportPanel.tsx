@@ -2,14 +2,57 @@
 import { useState, useMemo, useEffect } from "react";
 import type { DashboardData, KeyQuestion, FiveQuestions, HistoryReport } from "@/types";
 import { getDotDisplayName, getPathwayName } from "@/types";
-import { END_STATE_COLORS, compositeColor, STATUS_COLORS, STATUS_ORDER, PATHWAY_COLORS } from "@/lib/colors";
+import { END_STATE_COLORS, compositeColor, STATUS_COLORS, STATUS_ORDER } from "@/lib/colors";
 import { RadialGauge } from "./ui/RadialGauge";
 import { Sparkline } from "./ui/Sparkline";
+import { formatDateTime, formatWeekday } from "@/lib/datetime";
 import { fetchHistory } from "@/lib/api";
 
 export function ReportPanel({ data }: { data: DashboardData }) {
-  const { report, dots, pathways, indicators, alerts } = data;
+  const { report, dots, pathways, indicators } = data;
   const [expandedQ, setExpandedQ] = useState<Set<number>>(new Set());
+
+  // 7-day trajectory — fetched from real report history, client-only.
+  // SSR-safe: initial state uses placeholder labels + current score.
+  // Moved before the early-return guard to satisfy rules-of-hooks.
+  interface TrajectoryDay {
+    label: string;
+    score: number;
+  }
+  const [trajectoryDays, setTrajectoryDays] = useState<TrajectoryDay[]>(() =>
+    Array.from({ length: 8 }, () => ({
+      label: "—",
+      score: report?.composite_score ?? 0,
+    })),
+  );
+  useEffect(() => {
+    let cancelled = false;
+    fetchHistory(7)
+      .then((history: HistoryReport[]) => {
+        if (cancelled) return;
+        const days: TrajectoryDay[] = [];
+        const reversed = [...history].reverse();
+        for (const h of reversed) {
+          const d = new Date(h.date + "T00:00:00");
+          days.push({
+            label: formatWeekday(d),
+            score: h.composite_score,
+          });
+        }
+        if (days.length > 0) {
+          setTrajectoryDays(days);
+        }
+      })
+      .catch(() => {
+        // keep placeholder data on fetch error
+      });
+    return () => { cancelled = true; };
+  }, [report?.composite_score]);
+
+  // Sparkline data
+  const sparkData = useMemo(() => {
+    return (indicators ?? []).slice(0, 15).map((i) => i.value ?? 0);
+  }, [indicators]);
 
   if (!report) {
     return <div className="flex-1 flex items-center justify-center text-zinc-600 font-mono text-sm">No report data available</div>;
@@ -64,48 +107,6 @@ export function ReportPanel({ data }: { data: DashboardData }) {
     (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9)
   );
 
-  // 7-day trajectory — fetched from real report history, client-only.
-  // SSR-safe: initial state uses placeholder labels + current score.
-  interface TrajectoryDay {
-    label: string;
-    score: number;
-  }
-  const [trajectoryDays, setTrajectoryDays] = useState<TrajectoryDay[]>(() =>
-    Array.from({ length: 8 }, (_, i) => ({
-      label: "—",
-      score: report.composite_score,
-    })),
-  );
-  useEffect(() => {
-    let cancelled = false;
-    fetchHistory(7)
-      .then((history: HistoryReport[]) => {
-        if (cancelled) return;
-        const days: TrajectoryDay[] = [];
-        // History is newest-first; we want oldest-first for left-to-right display
-        const reversed = [...history].reverse();
-        for (const h of reversed) {
-          const d = new Date(h.date + "T00:00:00");
-          days.push({
-            label: d.toLocaleDateString("en", { weekday: "short" }),
-            score: h.composite_score,
-          });
-        }
-        if (days.length > 0) {
-          setTrajectoryDays(days);
-        }
-      })
-      .catch(() => {
-        // keep placeholder data on fetch error
-      });
-    return () => { cancelled = true; };
-  }, [report.composite_score]);
-
-  // Sparkline data
-  const sparkData = useMemo(() => {
-    return (indicators ?? []).slice(0, 15).map((i) => i.value ?? 0);
-  }, [indicators]);
-
   function toggleQ(idx: number) {
     setExpandedQ((prev) => {
       const next = new Set(prev);
@@ -154,7 +155,6 @@ export function ReportPanel({ data }: { data: DashboardData }) {
         <div className="space-y-2">
           {(pathways ?? []).map((pw, idx) => {
             const pwName = getPathwayName(pw);
-            const pwColor = PATHWAY_COLORS[pw.pathway];
             return (
             <div key={`pw-${pw.pathway}-${idx}`} className="space-y-1">
               <div className="flex items-center gap-2">
@@ -299,7 +299,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
 
       {/* 7. Footer */}
       <div className="flex items-center justify-between text-xs font-mono text-zinc-600 border-t border-zinc-800 pt-3">
-        <span suppressHydrationWarning>Generated: {new Date(report.created_at).toLocaleString()}</span>
+        <span suppressHydrationWarning>Generated: {formatDateTime(report.created_at)}</span>
         <span>Next run: daily at 08:00</span>
       </div>
     </div>

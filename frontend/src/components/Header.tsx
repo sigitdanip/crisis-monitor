@@ -1,5 +1,6 @@
 "use client";
 import { compositeColor } from "@/lib/colors";
+import { formatDateTime } from "@/lib/datetime";
 import { RadialGauge } from "./ui/RadialGauge";
 
 interface HeaderProps {
@@ -25,7 +26,7 @@ export function Header({ compositeScore, lastUpdated }: HeaderProps) {
 
       <div className="flex items-center gap-3 md:gap-4">
         <span suppressHydrationWarning className="hidden sm:inline text-[10px] text-zinc-500 font-mono md:text-xs">
-          {lastUpdated ? `Updated: ${new Date(lastUpdated).toLocaleString()}` : '\u00A0'}
+          {lastUpdated ? `Updated: ${formatDateTime(lastUpdated)}` : '\u00A0'}
         </span>
         <div className="flex items-center gap-1.5 md:gap-2">
           <span className="hidden sm:inline text-[10px] text-zinc-500 font-mono md:text-xs">COMPOSITE</span>

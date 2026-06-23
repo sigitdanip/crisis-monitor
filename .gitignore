@@ -34,3 +34,13 @@ prd/
 server.log
 *.log
 backend/data/*.db
+
+# QA scratch (worker debugging files - do not commit)
+_qa_*.py
+_qa_*.tsx
+_qa_*.js
+_test_*.py
+_test_*.ts
+_test_*.js
+test-locale-*
+_archived/

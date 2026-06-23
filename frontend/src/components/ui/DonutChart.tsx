@@ -19,6 +19,7 @@ export function DonutChart({ segments, size = 120, thickness = 18, centerLabel, 
     const length = pct * circumference;
     const dash = `${length} ${circumference - length}`;
     const arc = { ...seg, dash, dashOffset: -offset };
+    // eslint-disable-next-line react-hooks/immutability -- offset is a local accumulator, not state
     offset += length;
     return arc;
   });

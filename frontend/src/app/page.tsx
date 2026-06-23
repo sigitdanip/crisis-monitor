@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import type { DashboardData } from "@/types";
+import { formatTimeSec } from "@/lib/datetime";
 import { fetchDashboard } from "@/lib/api";
 import { usePolling } from "@/lib/usePolling";
 import { Header } from "@/components/Header";
@@ -43,6 +44,7 @@ function readCache(): CacheEntry | null {
 
 function writeCache(data: DashboardData): void {
   try {
+    // safe: client-only (localStorage is not available during SSR)
     const entry: CacheEntry = { data, cachedAt: Date.now() };
     localStorage.setItem(LS_KEY, JSON.stringify(entry));
   } catch {
@@ -62,7 +64,6 @@ export default function Home() {
   //   spinner (page.tsx:110) — see related card t_d4212728.
   const [data, setData] = useState<DashboardData>(EMPTY_DATA);
   const [cachedAt, setCachedAt] = useState<number | null>(null);
-  const [hydratedFromCache, setHydratedFromCache] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -99,9 +100,9 @@ export default function Home() {
     // Step 1: hydrate from localStorage (client-only, post-hydration).
     const cached = readCache();
     if (cached) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: client-only localStorage hydration after SSR
       setData(cached.data);
       setCachedAt(cached.cachedAt);
-      setHydratedFromCache(true);
     }
 
     // Step 2: fetch fresh data from the API.
@@ -185,7 +186,7 @@ export default function Home() {
           </span>
           {cachedAt != null && (
             <span suppressHydrationWarning className="text-[10px] font-mono text-zinc-600 md:text-xs">
-              (cached {new Date(cachedAt).toLocaleTimeString()})
+              (cached {formatTimeSec(cachedAt)})
             </span>
           )}
         </div>

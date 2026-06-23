@@ -170,11 +170,11 @@ class TestDailyReportQuality:
         )
 
     def test_composite_score_valid(self):
-        """Assert composite_score is a valid integer in 0-16 range (not None/negative)."""
+        """Assert composite_score is a valid number in 0-30 range (not None/negative)."""
         dash = _get("/api/dashboard")
         score = dash["report"]["composite_score"]
-        assert isinstance(score, int), f"Composite score is not an int: {type(score)}"
-        assert 0 <= score <= 16, f"Composite score {score} out of valid range 0-16"
+        assert isinstance(score, (int, float)), f"Composite score is not a number: {type(score)}"
+        assert 0 <= score <= 30, f"Composite score {score} out of valid range 0-30"
 
     def test_five_questions_all_answered(self):
         """Assert all five_questions have non-empty answers."""

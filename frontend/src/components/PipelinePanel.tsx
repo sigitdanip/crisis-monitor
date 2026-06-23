@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { formatDateTime } from "@/lib/datetime";
 import {
   ReactFlow,
   Background,
@@ -11,7 +12,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { PipelineStatus } from "@/types";
+import type { PipelineStatus, PipelineNode } from "@/types";
 import { fetchPipeline } from "@/lib/api";
 import { FetcherNode } from "./nodes/FetcherNode";
 import { ScorerNode } from "./nodes/ScorerNode";
@@ -99,20 +100,11 @@ function buildLayout(status: PipelineStatus): { nodes: Node[]; edges: Edge[] } {
   ];
 
   // ponytail: live branch overlays backend status onto the same 24-node layout
-  const beFetchers  = live ? status.nodes.filter((n: any) => n.type === "fetcher") : [];
-  const beScorer    = live ? status.nodes.find((n: any) => n.type === "scorer") : undefined;
-  const beAgents    = live ? status.nodes.filter((n: any) => n.type === "agent") : [];
-  const beSynth     = live ? status.nodes.find((n: any) => n.type === "synthesizer") : undefined;
-  const beAssessor  = live ? status.nodes.find((n: any) => n.type === "assessor") : undefined;
-
-  function beNode(n: any) {
-    return {
-      status: n?.status ?? "success",
-      duration: n?.duration_ms ? `${n.duration_ms}ms` : "—",
-      count: n?.input_summary ?? "",
-      output: n?.output_summary ?? "",
-    };
-  }
+  const beFetchers  = live ? status.nodes.filter((n: PipelineNode) => n.type === "fetcher") : [];
+  const beScorer    = live ? status.nodes.find((n: PipelineNode) => n.type === "scorer") : undefined;
+  const beAgents    = live ? status.nodes.filter((n: PipelineNode) => n.type === "agent") : [];
+  const beSynth     = live ? status.nodes.find((n: PipelineNode) => n.type === "synthesizer") : undefined;
+  const beAssessor  = live ? status.nodes.find((n: PipelineNode) => n.type === "assessor") : undefined;
 
   // Build 24 nodes
   const nodes: Node[] = [
@@ -151,7 +143,7 @@ function buildLayout(status: PipelineStatus): { nodes: Node[]; edges: Edge[] } {
           status: be?.status ?? "success",
           dots: be?.input_summary ?? dotLabel,
           duration: be?.duration_ms ? `${be.duration_ms}ms` : "—",
-          model: (be as any)?.model ?? "pending",
+          model: be?.model ?? "pending",
         },
       };
     }),
@@ -216,24 +208,25 @@ export function PipelinePanel() {
   }, []);
 
   const layout = buildLayout(status ?? { nodes: [], edges: [], last_run: null, total_duration_ms: 0, success_count: 0, progress: { running: false, started_at: null, elapsed_ms: null, current_node: null, completed_nodes: null, failed_node: null, estimated_remaining_ms: null } });
-  const [nodes, setNodes, onNodesChange] = useNodesState(layout.nodes as any);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges as any);
+  const [nodes, setNodes, onNodesChange] = useNodesState(layout.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges);
 
   const load = useCallback(async () => {
     try {
       const data = await fetchPipeline();
       setStatus(data);
       const l = buildLayout(data);
-      setNodes(l.nodes as any);
-      setEdges(l.edges as any);
-    } catch (err: any) {
-      setError(err.message);
+      setNodes(l.nodes);
+      setEdges(l.edges);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
     }
   }, [setNodes, setEdges]);
 
   // Initial load
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- standard fetch-on-mount via useCallback
   useEffect(() => { load(); }, [load]);
 
   // Dynamic refresh interval based on pipeline running state
@@ -324,7 +317,7 @@ export function PipelinePanel() {
       {/* Footer Bar */}
       <div className="flex items-center justify-between px-4 py-2 border-t border-zinc-800 bg-zinc-950 text-[10px] font-mono text-zinc-600 shrink-0">
         <span suppressHydrationWarning>
-          Last run: {status?.last_run ? new Date(status.last_run).toLocaleString() : "Never"}
+          Last run: {status?.last_run ? formatDateTime(status.last_run) : "Never"}
         </span>
         <span>Duration: {status?.total_duration_ms ? `${status.total_duration_ms}ms` : "—"}</span>
         <span>Success: {status?.success_count ?? 0}/{(status?.nodes?.length ?? 7)}</span>

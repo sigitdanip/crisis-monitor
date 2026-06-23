@@ -1,8 +1,8 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import type { DashboardData } from "@/types";
 import { getDotDisplayName, getPathwayName } from "@/types";
-import { compositeColor, END_STATE_COLORS, STATUS_COLORS, STATUS_ORDER, PATHWAY_COLORS } from "@/lib/colors";
+import { compositeColor, END_STATE_COLORS } from "@/lib/colors";
 import { RadialGauge } from "./ui/RadialGauge";
 import { Sparkline } from "./ui/Sparkline";
 
@@ -47,7 +47,7 @@ interface StoryItem {
 
 function buildStories(data: DashboardData): StoryItem[] {
   const stories: StoryItem[] = [];
-  const { dots, pathways, report, indicators } = data;
+  const { dots, pathways, report } = data;
 
   // Active dot stories
   for (const dot of dots) {
@@ -112,9 +112,8 @@ export function OverviewTab({ data }: { data: DashboardData }) {
   // Dormant dots count
   const activeDotCount = dots.filter((d) => d.status !== "dormant").length;
 
-  // Alert sparkline — computed from real alert timestamps, client-only.
-  const [sparkData, setSparkData] = useState<number[]>(() => Array.from({ length: 7 }, () => 0));
-  useEffect(() => {
+  // Alert sparkline — computed from real alert timestamps, derived during render
+  const sparkData = useMemo(() => {
     const alerts = data.alerts ?? [];
     const now = new Date();
     const dayBuckets: number[] = Array.from({ length: 7 }, () => 0);
@@ -130,7 +129,7 @@ export function OverviewTab({ data }: { data: DashboardData }) {
         // skip malformed dates
       }
     }
-    setSparkData(dayBuckets);
+    return dayBuckets;
   }, [data.alerts]);
 
   return (

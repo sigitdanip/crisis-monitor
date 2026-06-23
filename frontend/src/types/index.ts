@@ -143,6 +143,7 @@ export interface PipelineNode {
   duration_ms: number;
   input_summary?: string;
   output_summary?: string;
+  model?: string;
   error?: string;
 }
 

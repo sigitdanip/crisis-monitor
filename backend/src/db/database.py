@@ -120,5 +120,10 @@ def init_db():
         conn.execute("ALTER TABLE dot_analyses ADD COLUMN sources TEXT DEFAULT '[]'")
     except sqlite3.OperationalError:
         pass  # column already exists
+    # Migration: add trigger_source column to daily_reports (per-source idempotency)
+    try:
+        conn.execute("ALTER TABLE daily_reports ADD COLUMN trigger_source TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.commit()
     conn.close()

@@ -8,8 +8,9 @@ export function IndicatorsPanel({ data }: { data: DashboardData }) {
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
 
   const byCategory = useMemo(() => {
-    const map = new Map<string, typeof data.indicators>();
-    for (const ind of data.indicators ?? []) {
+    const indicators = data.indicators ?? [];
+    const map = new Map<string, typeof indicators>();
+    for (const ind of indicators) {
       const list = map.get(ind.category) ?? [];
       list.push(ind);
       map.set(ind.category, list);

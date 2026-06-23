@@ -11,7 +11,11 @@ export function usePolling(
   deps: unknown[] = [],
 ) {
   const savedCallback = useRef(callback);
-  savedCallback.current = callback;
+
+  // Keep callback ref current after each render
+  useEffect(() => {
+    savedCallback.current = callback;
+  });
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;

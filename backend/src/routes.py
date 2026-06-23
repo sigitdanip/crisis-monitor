@@ -385,6 +385,43 @@ async def system_health():
     )
 
 
+# ── Status endpoint (metrics) ───────────────────────────────────────────────
+
+# 1-second cache for /api/status to avoid hot-path cost
+_status_cache: dict | None = None
+_status_cache_ts: float = 0.0
+_STATUS_CACHE_TTL: float = 1.0  # seconds
+
+
+@router.get("/status")
+async def api_status():
+    """Metrics endpoint: uptime, requests, errors, latency, DB, memory.
+
+    Response is cached for 1 second to avoid per-request overhead on
+    the metrics middleware's data structures. Fields:
+
+    - uptime_seconds: process uptime
+    - process_start: ISO8601 UTC start time
+    - requests_last_24h: total requests in last 24 hours
+    - errors_last_24h: 4xx+5xx responses in last 24 hours
+    - latency_p50_ms / latency_p95_ms: percentiles from last 100 requests
+    - latency_sample_size: number of latency samples
+    - db_status: "ok" or "unreachable"
+    - memory_rss_mb: resident set size in MB
+    """
+    global _status_cache, _status_cache_ts
+
+    now = time.time()
+    if _status_cache is not None and (now - _status_cache_ts) < _STATUS_CACHE_TTL:
+        return _status_cache
+
+    from src.middleware.metrics import get_metrics
+
+    _status_cache = get_metrics()
+    _status_cache_ts = now
+    return _status_cache
+
+
 # ── Trigger endpoints (Layer 3: auth, Layer 4: idempotency) ─────────────────
 
 

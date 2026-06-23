@@ -1,6 +1,7 @@
 "use client";
 import { useState, useMemo } from "react";
 import type { DashboardData } from "@/types";
+import { formatTime } from "@/lib/datetime";
 import { DonutChart } from "./ui/DonutChart";
 
 const ALERT_COLORS: Record<string, string> = {
@@ -12,12 +13,12 @@ const ALERT_COLORS: Record<string, string> = {
 };
 
 export function AlertsPanel({ data }: { data: DashboardData }) {
-  const alerts = data.alerts ?? [];
+  const alerts = data.alerts;
   const [filterCat, setFilterCat] = useState<string | null>(null);
   const [showAck, setShowAck] = useState(false);
 
   const filtered = useMemo(() => {
-    let a = alerts;
+    let a = alerts ?? [];
     if (filterCat) a = a.filter((al) => al.category === filterCat);
     if (!showAck) a = a.filter((al) => !al.acknowledged);
     return a;
@@ -26,7 +27,8 @@ export function AlertsPanel({ data }: { data: DashboardData }) {
   // Category breakdown for donut
   const catCounts = useMemo(() => {
     const map = new Map<string, number>();
-    for (const a of alerts) {
+    const items = alerts ?? [];
+    for (const a of items) {
       if (!a.acknowledged || showAck) {
         map.set(a.category, (map.get(a.category) ?? 0) + 1);
       }
@@ -102,7 +104,7 @@ export function AlertsPanel({ data }: { data: DashboardData }) {
                     style={{ borderLeftColor: catColor }}
                   >
                     <span suppressHydrationWarning className="text-[9px] font-mono text-zinc-500 mt-0.5">
-                      {new Date(alert.triggered_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {formatTime(alert.triggered_at)}
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">

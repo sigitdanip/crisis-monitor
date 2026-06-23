@@ -77,6 +77,42 @@ def fetch_all_market() -> list[dict[str, Any]]:
     return results
 
 
+# Gold 200-day Moving Average cache
+_gold_ma_cache: dict[str, float | None] = {"value": None, "fetched_at": 0.0}
+
+
+def fetch_gold_200d_ma(ticker_symbol: str = "GC=F") -> float | None:
+    """Fetch 200-day moving average for gold from yfinance.
+
+    Cached — only re-fetches if the value was never fetched.
+    MA changes slowly (1 data point per trading day), so this is safe
+    across multiple pipeline runs in the same process.
+
+    Returns:
+        Mean of last 200 days' closing prices, or None on failure.
+    """
+    import time as _time
+
+    now = _time.time()
+    if _gold_ma_cache["value"] is not None and (now - _gold_ma_cache["fetched_at"]) < 3600:
+        return _gold_ma_cache["value"]
+
+    try:
+        tk = yf.Ticker(ticker_symbol)
+        data = tk.history(period="200d")
+        if data.empty or len(data) < 10:
+            logger.warning("Gold MA: insufficient data (%d rows) from yfinance", len(data))
+            return None
+        ma = float(data["Close"].mean())
+        _gold_ma_cache["value"] = round(ma, 2)
+        _gold_ma_cache["fetched_at"] = now
+        logger.info("Gold 200-day MA: %.2f (from %d trading days)", ma, len(data))
+        return ma
+    except Exception:
+        logger.exception("Failed to fetch gold 200-day MA")
+        return None
+
+
 def _demo() -> None:
     """Quick self-check: prints first 3 indicators."""
     results = fetch_all_market()

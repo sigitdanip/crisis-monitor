@@ -1,5 +1,6 @@
 import type { Indicator } from "@/types";
 import { STATUS_COLORS } from "@/lib/colors";
+import { formatDate } from "@/lib/datetime";
 import type { DotStatus } from "@/types";
 
 export function IndicatorCard({ indicator }: { indicator: Indicator }) {
@@ -46,7 +47,7 @@ export function IndicatorCard({ indicator }: { indicator: Indicator }) {
 
       <div className="flex items-center justify-between mt-1">
         <span suppressHydrationWarning className="text-xs font-mono text-zinc-600">
-          {indicator.fetched_at ? new Date(indicator.fetched_at).toLocaleDateString() : "N/A"}
+          {indicator.fetched_at ? formatDate(indicator.fetched_at) : "N/A"}
         </span>
         <span className="text-xs font-mono text-zinc-600">
           {triggerNum > 0 ? `Trigger: ${triggerNum.toFixed(1)}` : ""}

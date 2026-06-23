@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { TimeseriesResponse, TimeseriesPoint } from "@/types";
 import { fetchTimeseriesByDays } from "@/lib/api";
 import { usePolling } from "@/lib/usePolling";
+import { formatMonthDay, formatMonthDayTime } from "@/lib/datetime";
 import { compositeColor } from "@/lib/colors";
 
 // Y-axis zones for the 0-30 scale
@@ -72,8 +73,7 @@ function drawXAxis(
   for (let i = 0; i < points.length; i += skip) {
     const pt = points[i];
     const x = PAD_L + i * stepX;
-    const date = new Date(pt.recorded_at);
-    const label = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const label = formatMonthDay(pt.recorded_at);
     ctx.fillText(label, x, yBase);
   }
 }
@@ -234,12 +234,7 @@ function TimeseriesChart({
         indicatorName: title,
         value: pt.value,
         status: pt.status,
-        time: new Date(pt.recorded_at).toLocaleString("en-US", {
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        }),
+        time: formatMonthDayTime(pt.recorded_at),
       });
     },
     [points, title, height, chartW],
@@ -287,7 +282,8 @@ function TimeseriesChart({
   );
 }
 
-export function TimeseriesPanel({ data: _data }: { data: import("@/types").DashboardData }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function TimeseriesPanel({ data }: { data: import("@/types").DashboardData }) {
   const [timeseries, setTimeseries] = useState<TimeseriesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -313,6 +309,7 @@ export function TimeseriesPanel({ data: _data }: { data: import("@/types").Dashb
   }, [days]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- standard fetch-on-mount via useCallback
     loadTimeseries();
   }, [loadTimeseries]);
 
@@ -452,7 +449,7 @@ export function TimeseriesPanel({ data: _data }: { data: import("@/types").Dashb
       {timeseries?.from && (
         <div className="flex items-center justify-between text-[10px] font-mono text-zinc-600 border-t border-zinc-800 pt-3">
           <span suppressHydrationWarning>
-            {new Date(timeseries.from).toLocaleDateString("en-US", { month: "short", day: "numeric" })} — {new Date(timeseries.to).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            {formatMonthDay(timeseries.from)} — {formatMonthDay(timeseries.to)}
           </span>
           <span>Updates daily</span>
         </div>

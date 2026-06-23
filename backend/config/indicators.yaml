@@ -1,0 +1,348 @@
+# Crisis Monitor — Indicator Configuration
+# Composite Score v2 — Distance-From-Trigger with Category Weights
+# Per spec: /root/.hermes/workspace/dev/specs/composite-score-v2.md
+# Decisions locked 2026-06-21 by user.
+
+indicators:
+  # ======== Energy (4 indicators, weight 1.5x) ========
+  - name: brent_oil
+    category: energy
+    value_type: numeric
+    unit: usd_per_barrel
+    baseline: 75
+    trigger_breach: 90
+    trigger_critical: 110
+    is_inverted: false
+    is_two_sided: false
+
+  - name: wti_oil
+    category: energy
+    value_type: numeric
+    unit: usd_per_barrel
+    baseline: 70
+    trigger_breach: 85
+    trigger_critical: 105
+    is_inverted: false
+    is_two_sided: false
+
+  - name: eu_gas_storage
+    category: energy
+    value_type: numeric
+    unit: percent
+    baseline: 85
+    trigger_breach: 70
+    trigger_critical: 60
+    is_inverted: true
+    is_two_sided: false
+
+  - name: natgas_henry_hub
+    category: energy
+    value_type: numeric
+    unit: usd_per_mmbtu
+    baseline: 3.0
+    trigger_breach: 4.5
+    trigger_critical: 7.0
+    is_inverted: false
+    is_two_sided: false
+
+  # ======== Food (4 indicators, weight 1.3x) ========
+  - name: fao_food_price_index
+    category: food
+    value_type: numeric
+    unit: index_points
+    baseline: 110
+    trigger_breach: 130
+    trigger_critical: 150
+    is_inverted: false
+    is_two_sided: false
+
+  - name: wheat_futures
+    category: food
+    value_type: numeric
+    unit: usd_per_bushel
+    baseline: 5.5
+    trigger_breach: 7.50
+    trigger_critical: 9.00
+    is_inverted: false
+    is_two_sided: false
+
+  - name: corn_futures
+    category: food
+    value_type: numeric
+    unit: usd_per_bushel
+    baseline: 4.0
+    trigger_breach: 5.50
+    trigger_critical: 7.00
+    is_inverted: false
+    is_two_sided: false
+
+  - name: rice_price
+    category: food
+    value_type: numeric
+    unit: usd_per_cwt
+    baseline: 14
+    trigger_breach: 16
+    trigger_critical: 20
+    is_inverted: false
+    is_two_sided: false
+
+  # ======== Economic (4 indicators, weight 1.0x) ========
+  - name: us_ism_manufacturing
+    category: economic
+    value_type: numeric
+    unit: index
+    baseline: 50
+    trigger_breach: 47
+    trigger_critical: 45
+    is_inverted: true
+    is_two_sided: false
+
+  - name: china_caixin_pmi
+    category: economic
+    value_type: numeric
+    unit: index
+    baseline: 50
+    trigger_breach: 48
+    trigger_critical: 46
+    is_inverted: true
+    is_two_sided: false
+
+  - name: eurozone_manufacturing_pmi
+    category: economic
+    value_type: numeric
+    unit: index
+    baseline: 50
+    trigger_breach: 47
+    trigger_critical: 45
+    is_inverted: true
+    is_two_sided: false
+
+  - name: us_jobless_claims
+    category: economic
+    value_type: numeric
+    unit: thousands
+    baseline: 230
+    trigger_breach: 280
+    trigger_critical: 320
+    is_inverted: false
+    is_two_sided: false
+
+  # ======== Financial (4 indicators, weight 1.4x) ========
+  - name: vix
+    category: financial
+    value_type: numeric
+    unit: index_points
+    baseline: 15
+    trigger_breach: 25
+    trigger_critical: 35
+    is_inverted: false
+    is_two_sided: false
+
+  - name: move_bond_volatility
+    category: financial
+    value_type: numeric
+    unit: index_points
+    baseline: 90
+    trigger_breach: 120
+    trigger_critical: 150
+    is_inverted: false
+    is_two_sided: false
+
+  - name: ted_spread
+    category: financial
+    value_type: numeric
+    unit: basis_points
+    baseline: 20
+    trigger_breach: 50
+    trigger_critical: 80
+    is_inverted: false
+    is_two_sided: false
+
+  - name: credit_spread
+    category: financial
+    value_type: numeric
+    unit: basis_points
+    baseline: 120
+    trigger_breach: 200
+    trigger_critical: 300
+    is_inverted: false
+    is_two_sided: false
+
+  # ======== Currency (3 indicators, weight 1.2x) ========
+  - name: dxy_index
+    category: currency
+    value_type: numeric
+    unit: index
+    baseline: 100
+    trigger_breach: 105
+    trigger_critical: 110
+    trigger_breach_lower: 95
+    trigger_critical_lower: 90
+    is_inverted: false
+    is_two_sided: true
+
+  - name: eur_usd
+    category: currency
+    value_type: numeric
+    unit: rate
+    baseline: 1.10
+    trigger_breach: 1.15
+    trigger_critical: 1.20
+    trigger_breach_lower: 1.05
+    trigger_critical_lower: 1.00
+    is_inverted: false
+    is_two_sided: true
+
+  - name: usd_cny
+    category: currency
+    value_type: numeric
+    unit: rate
+    baseline: 7.0
+    trigger_breach: 7.2
+    trigger_critical: 7.4
+    is_inverted: false
+    is_two_sided: false
+
+  # ======== Metals (3 indicators, weight 0.8x) ========
+  - name: gold_price
+    category: metals
+    value_type: ma_deviation
+    unit: usd_per_oz
+    ma_window: 200
+    deviation_thresholds:
+      baseline_pct: 0.05
+      breach_pct: 0.15
+      critical_pct: 0.25
+    is_one_sided: true
+
+  - name: copper_price
+    category: metals
+    value_type: numeric
+    unit: usd_per_lb
+    baseline: 3.8
+    trigger_breach: 3.50
+    trigger_critical: 4.50
+    is_inverted: false
+    is_two_sided: false
+
+  - name: silver_price
+    category: metals
+    value_type: numeric
+    unit: usd_per_oz
+    baseline: 28
+    trigger_breach: 35
+    trigger_critical: 45
+    is_inverted: false
+    is_two_sided: false
+
+  # ======== Supply Chain (4 indicators, weight 1.3x) ========
+  - name: baltic_dry_index
+    category: supply_chain
+    value_type: numeric
+    unit: index_points
+    baseline: 1300
+    trigger_breach: 1500
+    trigger_critical: 2000
+    is_inverted: false
+    is_two_sided: false
+
+  - name: scfi
+    category: supply_chain
+    value_type: numeric
+    unit: index_points
+    baseline: 2000
+    trigger_breach: 3000
+    trigger_critical: 4000
+    is_inverted: false
+    is_two_sided: false
+
+  - name: hormuz_strait
+    category: supply_chain
+    value_type: enum
+    values:
+      - normal
+      - elevated
+      - threatened
+      - closure
+    scores:
+      - 0.0
+      - 0.3
+      - 0.7
+      - 1.0
+
+  - name: taiwan_strait_tension
+    category: supply_chain
+    value_type: enum
+    values:
+      - normal
+      - monitored
+      - elevated
+      - high
+    scores:
+      - 0.0
+      - 0.2
+      - 0.6
+      - 1.0
+
+  # ======== Geopolitical (4 indicators, weight 1.4x) ========
+  - name: russia_ukraine_conflict
+    category: geopolitical
+    value_type: enum
+    values:
+      - normal
+      - ongoing
+      - escalation
+      - major
+    scores:
+      - 0.0
+      - 0.3
+      - 0.7
+      - 1.0
+
+  - name: middle_east_conflict
+    category: geopolitical
+    value_type: enum
+    values:
+      - normal
+      - localized
+      - regional
+      - widespread
+    scores:
+      - 0.0
+      - 0.3
+      - 0.7
+      - 1.0
+
+  - name: china_taiwan_tension
+    category: geopolitical
+    value_type: enum
+    values:
+      - normal
+      - elevated
+      - critical
+    scores:
+      - 0.0
+      - 0.6
+      - 1.0
+
+  - name: global_terrorism_index
+    category: geopolitical
+    value_type: numeric
+    unit: index
+    baseline: 4.5
+    trigger_breach: 6
+    trigger_critical: 7.5
+    is_inverted: false
+    is_two_sided: false
+
+# Category weights — LOCKED 2026-06-21 by user
+# Total sum: 37.6 (normalizes to 30-point scale)
+category_weights:
+  energy: 1.5
+  financial: 1.4
+  geopolitical: 1.4
+  food: 1.3
+  supply_chain: 1.3
+  currency: 1.2
+  economic: 1.0
+  metals: 0.8

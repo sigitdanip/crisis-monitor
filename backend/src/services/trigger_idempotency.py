@@ -3,6 +3,9 @@
 When POST /api/trigger/daily is called within 5 minutes of a previous
 run with the same trigger_source, the second call returns the existing
 report instead of starting a new pipeline.
+
+Per-source tracking: a "scheduler" run within 5 minutes does NOT block
+an "api" trigger, and vice versa. Each source has its own window.
 """
 
 import logging
@@ -28,16 +31,20 @@ def find_recent_report(trigger_source: str) -> dict | None:
         ).strftime("%Y-%m-%d %H:%M:%S")
 
         row = conn.execute(
-            "SELECT id, date, end_state, composite_score, confidence, synthesis, briefing, created_at "
-            "FROM daily_reports WHERE created_at >= ? ORDER BY created_at DESC LIMIT 1",
-            (cutoff,),
+            "SELECT id, date, end_state, composite_score, confidence, "
+            "synthesis, briefing, created_at, trigger_source "
+            "FROM daily_reports "
+            "WHERE created_at >= ? AND trigger_source = ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (cutoff, trigger_source),
         ).fetchone()
         conn.close()
 
         if row:
             logger.info(
-                "Idempotency check: found recent report id=%s created=%s — returning existing",
+                "Idempotency check: found recent report id=%s source=%s created=%s — returning existing",
                 row["id"],
+                trigger_source,
                 row["created_at"],
             )
             return dict(row)
