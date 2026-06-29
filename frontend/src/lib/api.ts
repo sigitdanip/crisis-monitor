@@ -1,4 +1,4 @@
-import type { DashboardData, PipelineStatus, HistoryReport, TimeseriesResponse } from "@/types";
+import type { DashboardData, PipelineStatus, HistoryReport, TimeseriesResponse, FetcherHealthItem } from "@/types";
 
 const BASE = "";
 const DEFAULT_TIMEOUT = 5000; // 5s
@@ -61,3 +61,10 @@ export async function fetchTimeseriesByDays(days: number): Promise<TimeseriesRes
   if (!res.ok) throw new Error(`Timeseries fetch failed: ${res.status}`);
   return res.json();
 }
+
+export async function fetchFetcherHealth(): Promise<{ fetchers: FetcherHealthItem[] }> {
+  const res = await fetchWithTimeout(`${BASE}/api/health/fetchers`);
+  if (!res.ok) throw new Error(`Fetcher health fetch failed: ${res.status}`);
+  return res.json();
+}
+

@@ -1,4 +1,17 @@
-export type DotStatus = "dormant" | "activating" | "active" | "critical";
+export type DotStatus = "dormant" | "activating" | "active" | "critical" | "unavailable";
+
+// ── Tier classification ───────────────────────────────────────────────────
+/** Data completeness tier returned by the tier_classifier pipeline node. */
+export type Tier = "live" | "mixed" | "qualitative";
+
+// ── Fetcher health ────────────────────────────────────────────────────────
+/** One row from GET /api/system/health → fetchers array. */
+export interface FetcherHealthItem {
+  fetcher_name: string;
+  consecutive_failures: number;
+  last_24h_success_rate: number | null;
+  last_success: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Human-readable display names for dot keys returned by the backend.

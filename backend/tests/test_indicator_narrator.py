@@ -271,7 +271,7 @@ class TestNewsDerivedFlagIndicators:
         # Should show narrative, not the numeric value
         assert "Grain prices surge amid drought" in result
         assert "(news):" in result
-        assert "Trigger: ≥1" in result
+        assert "Trigger: >=1" in result
         # Should NOT show the raw numeric value as the main content
         assert "= 1 flag" not in result
 

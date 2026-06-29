@@ -294,141 +294,11 @@ async def node_end_state_assessor(state: CrisisState) -> CrisisState:
 
 
 async def node_save_to_db(state: CrisisState) -> CrisisState:
-    """Save all pipeline results to SQLite."""
+    """Persist all pipeline results to SQLite via db_writer service."""
     t0 = time.time()
     try:
-        conn = get_db()
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-        # Save indicator snapshots with full metadata from INDICATOR_META registry
-        from src.agent.indicator_narrator import INDICATOR_META, _assess, _is_news_flag, _extract_scalar
-        narratives = state.get("indicator_narratives") or {}
-
-        # Build a lookup of news-derived narratives keyed by their base slug
-        # (e.g. news_caixin_pmi → narrative for fallback into caixin_pmi)
-        news_narratives: dict[str, str] = {}
-        for slug, val in state["indicators"].items():
-            if _is_news_flag(val):
-                narrative = val.get("narrative", "")
-                if narrative:
-                    # Strip "news_" prefix to map to the regular indicator slug
-                    base_slug = slug.removeprefix("news_")
-                    news_narratives[base_slug] = narrative
-
-        for slug, val in state["indicators"].items():
-            if isinstance(val, (int, float, str)):
-                meta = INDICATOR_META.get(slug, {})
-                display_name = meta.get("name", slug)
-                category = meta.get("category", "")
-                unit = meta.get("unit", "")
-                trigger = meta.get("trigger", "")
-                status = _assess(val, meta) if meta else "normal"
-                narrative = narratives.get(slug, "")
-                # Fall back to news-derived narrative if LLM narrative is empty
-                if not narrative and slug in news_narratives:
-                    narrative = news_narratives[slug]
-                # Convert empty strings to None for SQLite REAL column compatibility
-                db_val = None if isinstance(val, str) and val == "" else val
-                conn.execute(
-                    """INSERT INTO indicator_history
-                       (indicator_name, display_name, category, value, unit, status, trigger_level, narrative)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (slug, display_name, category, db_val, unit, status, trigger, narrative),
-                )
-            elif _is_news_flag(val):
-                # Persist news-derived flag indicators to indicator_history
-                meta = INDICATOR_META.get(slug, {})
-                display_name = meta.get("name", slug)
-                category = meta.get("category", "")
-                unit = meta.get("unit", "flag")
-                trigger = meta.get("trigger", "")
-                flag_value = val.get("value", 0)
-                status = _assess(val, meta) if meta else "normal"
-                narrative = val.get("narrative", "")
-                conn.execute(
-                    """INSERT INTO indicator_history
-                       (indicator_name, display_name, category, value, unit, status, trigger_level, narrative)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (slug, display_name, category, flag_value, unit, status, trigger, narrative),
-                )
-            else:
-                # No data available (val is None from missing-data shim, or unsupported type).
-                # Write a row with value=NULL and status='unknown' so every registered
-                # indicator has a row in indicator_history.
-                meta = INDICATOR_META.get(slug, {})
-                display_name = meta.get("name", slug)
-                category = meta.get("category", "")
-                unit = meta.get("unit", "")
-                trigger = meta.get("trigger", "")
-                narrative = narratives.get(slug, "")
-                # Fall back to news-derived narrative
-                if not narrative and slug in news_narratives:
-                    narrative = news_narratives[slug]
-                # Safety net: ensure every NULL row has some narrative
-                if not narrative:
-                    narrative = "No data and no recent news coverage."
-                conn.execute(
-                    """INSERT INTO indicator_history
-                       (indicator_name, display_name, category, value, unit, status, trigger_level, narrative)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (slug, display_name, category, None, unit, "unknown", trigger, narrative),
-                )
-
-        # Save dot analyses
-        dots = state["dot_analyses"] or {}
-        for dot_key, dot_data in dots.items():
-            if not isinstance(dot_data, dict):
-                continue
-            dot_num = int(dot_key.split("_")[-1]) if dot_key.startswith("dot_") else 0
-            # Sources: string paragraph from LLM, or empty string fallback.
-            # Backward-compat: if LLM returned a list (old format), serialize as JSON.
-            sources_raw = dot_data.get("sources", "")
-            if isinstance(sources_raw, list):
-                sources_raw = json.dumps(sources_raw)
-            conn.execute(
-                "INSERT INTO dot_analyses (dot_number, dot_name, status, summary, key_signals, sources) VALUES (?, ?, ?, ?, ?, ?)",
-                (dot_num, dot_key, dot_data.get("status", "dormant"),
-                 dot_data.get("summary", ""),
-                 json.dumps(dot_data.get("key_signals", [])),
-                 sources_raw),
-            )
-
-        # Save pathway status
-        pathways = state["pathways"] or {}
-        for pkey, pdata in pathways.items():
-            if not isinstance(pdata, dict) or not pkey.startswith("pathway_"):
-                continue
-            conn.execute(
-                "INSERT INTO pathway_status (pathway, active, signals, name, description) VALUES (?, ?, ?, ?, ?)",
-                (pkey, 1 if pdata.get("active") else 0,
-                 json.dumps(pdata.get("triggered_by", [])),
-                 pdata.get("name", ""),
-                 pdata.get("description", "")),
-            )
-
-        # Save daily report
-        end_state = state["end_state"] or {}
-        briefing = end_state.get("briefing", "")
-        conn.execute(
-            """INSERT OR REPLACE INTO daily_reports
-               (date, dot_summary, pathway_summary, end_state, synthesis, five_questions, confidence, composite_score, briefing, trigger_source)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                today,
-                json.dumps(state["dot_analyses"] or {}),
-                json.dumps(state["pathways"] or {}),
-                end_state.get("end_state", "unknown"),
-                end_state.get("briefing", end_state.get("headline", "")),
-                json.dumps({k: end_state.get(k) for k in ("q1", "q2", "q3", "q4", "q5") if k in end_state}),
-                str(end_state.get("confidence", 0)),
-                state["composite_score"]["composite"] if state["composite_score"] else 0,
-                briefing,
-                state.get("trigger_source", ""),
-            ),
-        )
-        conn.commit()
-        conn.close()
-
+        from src.services.db_writer import save_pipeline_results
+        save_pipeline_results(state)
         dur = (time.time() - t0) * 1000
         _record_timing(state, "Save to DB", "fetcher", "success", dur,
                        output_summary="All tables populated")
@@ -443,6 +313,7 @@ async def node_save_to_db(state: CrisisState) -> CrisisState:
 # ============================================================
 # Graph Assembly
 # ============================================================
+
 
 def build_graph() -> StateGraph:
     """Build and compile the crisis monitor StateGraph."""

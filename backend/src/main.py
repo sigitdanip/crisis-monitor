@@ -2,7 +2,9 @@ from dotenv import load_dotenv
 load_dotenv(override=True)  # load OPENCODE_GO_API_KEY before imports that need it
 
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +14,12 @@ from src.middleware.logging import RequestLoggingMiddleware
 from src.scheduler import start_scheduler, stop_scheduler
 
 logger = logging.getLogger("crisis_monitor.main")
+
+# ── Paths (no hardcoded /root/ references) ────────────────────────────────
+# main.py lives at src/main.py; parents[1] is the backend/ root.
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_LOG = str(_BACKEND_ROOT / "server.log")
+_LOG_PATH = os.environ.get("CRISIS_LOG_PATH", _DEFAULT_LOG)
 
 
 @asynccontextmanager
@@ -24,7 +32,7 @@ async def lifespan(app: FastAPI):
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.FileHandler("/root/crisis-monitor/backend/server.log"), logging.StreamHandler()],
+        handlers=[logging.FileHandler(_LOG_PATH), logging.StreamHandler()],
     )
     # Pipeline log file: captures per-node progress and completions
     pipeline_handler = logging.FileHandler("/tmp/crisis-pipeline.log")
@@ -47,10 +55,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Crisis Monitor", version="0.1.0", lifespan=lifespan)
 
-# --- CORS ---
+# ── CORS ─────────────────────────────────────────────────────────────────
+# Read allowed origins from env; default to localhost only.
+# Add the production IP/domain to CORS_ALLOWED_ORIGINS in .env:
+#   CORS_ALLOWED_ORIGINS=http://localhost:3001,http://187.77.130.62:3001
+_cors_origins = [
+    o.strip()
+    for o in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3001").split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3001", "http://187.77.130.62:3001"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

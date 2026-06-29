@@ -69,7 +69,7 @@ def _fetch_one(
             "source": f"FRED:{info['series_id']}",
         }
     except Exception:
-        logger.exception("Failed to fetch FRED series %s", info["series_id"])
+        logger.warning("Failed to fetch FRED series %s", info["series_id"], exc_info=True)
         return None
 
 
@@ -116,7 +116,7 @@ def _fetch_btp_bund(client: httpx.Client, api_key: str) -> dict | None:
             "source": "FRED:IRLTLT01ITM156N/IRLTLT01DEM156N",
         }
     except Exception:
-        logger.exception("Failed to compute BTP-Bund spread")
+        logger.warning("Failed to compute BTP-Bund spread", exc_info=True)
         return None
 
 

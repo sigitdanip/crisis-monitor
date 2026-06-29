@@ -7,8 +7,8 @@ Last updated: 2026-06-20
 
 ## 1. Quick Start
 
-The backend runs on the VPS at `187.77.130.62:8000` and the frontend on port 3001.
-Start the backend from the project root with `cd /root/crisis-monitor/backend && uv run uvicorn src.main:app --host 0.0.0.0 --port 8000`.
+The backend runs on the VPS at `187.77.130.62:8001` and the frontend on port 3001.
+Start the backend from the project root with `cd /root/crisis-monitor/backend && uv run uvicorn src.main:app --host 0.0.0.0 --port 8001`.
 Start the frontend from the frontend directory with `cd /root/crisis-monitor/frontend && npm run dev -- -p 3001`.
 Both services should be running at all times; the cron watchdog monitors backend health and alerts on failure.
 
@@ -19,7 +19,7 @@ Both services should be running at all times; the cron watchdog monitors backend
 The primary health endpoint is `GET /api/system/health`, which returns a JSON object with DB status,
 last pipeline run timestamp, 24-hour error and fallback counts, the current LLM model, and process uptime.
 A healthy system returns `{"status": "ok", "db": "ok", ...}` with HTTP 200; any other status returns HTTP 503.
-Monitor this endpoint manually with: `curl -s http://localhost:8000/api/system/health | python3 -m json.tool`.
+Monitor this endpoint manually with: `curl -s http://localhost:8001/api/system/health | python3 -m json.tool`.
 The `/health` endpoint is a simpler liveness probe returning `{"status": "ok"}` — use it for basic uptime checks only.
 
 ---
@@ -109,8 +109,8 @@ The 24-hour error count in the health endpoint is derived from ERROR/Traceback l
 ## 5. Restart Procedure
 
 To restart the backend, first kill the running process: `pkill -f "uvicorn src.main:app"` or find the PID with `ps aux | grep uvicorn`.
-Wait 3 seconds for the port to release, then restart: `cd /root/crisis-monitor/backend && uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 &`.
-Verify the service is back with `curl -s http://localhost:8000/health` — it should return `{"status": "ok"}` within 5 seconds.
+Wait 3 seconds for the port to release, then restart: `cd /root/crisis-monitor/backend && uv run uvicorn src.main:app --host 0.0.0.0 --port 8001 &`.
+Verify the service is back with `curl -s http://localhost:8001/health` — it should return `{"status": "ok"}` within 5 seconds.
 If the backend fails to start, check the server log for exceptions and verify all environment variables in `.env` are present.
 
 ---
@@ -120,13 +120,13 @@ If the backend fails to start, check the server log for exceptions and verify al
 The LLM model is configured via the `LLM_MODEL` environment variable in `/root/crisis-monitor/backend/.env`.
 To roll back to a previous model, edit the `.env` file and change `LLM_MODEL=mimo-v2.5` to the desired model identifier.
 After changing the model, restart the backend following the Restart Procedure in Section 5.
-Verify the change took effect by checking the health endpoint's `model` field: `curl -s http://localhost:8000/api/system/health | python3 -c "import sys,json; print(json.load(sys.stdin)['model'])"`.
+Verify the change took effect by checking the health endpoint's `model` field: `curl -s http://localhost:8001/api/system/health | python3 -c "import sys,json; print(json.load(sys.stdin)['model'])"`.
 
 ---
 
 ## 7. Manual Re-fetch
 
-To manually trigger a daily pipeline run, send an authenticated POST request: `curl -X POST http://localhost:8000/api/trigger/daily -H "X-Crisis-Token: <token>"`.
+To manually trigger a daily pipeline run, send an authenticated POST request: `curl -X POST http://localhost:8001/api/trigger/daily -H "X-Crisis-Token: <token>"`.
 The token value is stored in `CRISIS_TRIGGER_TOKEN` in the backend `.env` file; you can extract it with `grep CRISIS_TRIGGER_TOKEN /root/crisis-monitor/backend/.env | cut -d= -f2`.
 The trigger is idempotent — calling it twice within 5 minutes returns the existing report instead of creating a duplicate.
 Monitor progress via `GET /api/pipeline/status` and view results on the dashboard at `http://187.77.130.62:3001`.

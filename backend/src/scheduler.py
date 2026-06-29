@@ -89,7 +89,7 @@ def start_scheduler() -> None:
     logger.info("scheduler: started, next run=%s", job.next_run_time if job else "unknown")
 
     # Check for missed runs on startup (only if past 8am and no recent run)
-    asyncio.get_event_loop().create_task(_recover_missed_run())
+    asyncio.get_running_loop().create_task(_recover_missed_run())
 
 
 def stop_scheduler() -> None:
@@ -104,6 +104,16 @@ def stop_scheduler() -> None:
 def get_last_run() -> dict | None:
     """Used by /api/pipeline/status to surface the in-process result."""
     return _last_run
+
+
+def set_last_run(result: dict) -> None:
+    """Called by routes.py after an API-triggered pipeline completes.
+
+    Keeps the in-process _last_run cache in sync so /api/pipeline/status
+    reflects the most recent result regardless of trigger source.
+    """
+    global _last_run
+    _last_run = result
 
 
 def get_scheduler_info() -> dict:

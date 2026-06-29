@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Query, Depends
 from fastapi.responses import JSONResponse
-from src.db.database import get_db
+from src.db.database import get_db_ctx
 from src.services.health import get_health
 from src.services.auth import verify_crisis_token
 from src.services.trigger_idempotency import find_recent_report
 from src.services.pipeline_runner import execute_pipeline
-from src.scheduler import get_last_run
+from src.scheduler import get_last_run, set_last_run
 import asyncio
 import json
 import logging
@@ -19,24 +19,87 @@ router = APIRouter()
 # In-memory cache of last pipeline run — owned by scheduler.py, imported above.
 # get_last_run() is used throughout this module instead of a local global.
 
-# Live progress state for the currently-running pipeline.
-_progress: dict = {
-    "running": False,
-    "started_at": None,
-    "current_node": None,
-    "completed_nodes": [],
-    "failed_node": None,
-    "estimated_total_ms": 150_000,
-}
+
+class PipelineProgress:
+    """Encapsulates live progress state for the currently-running pipeline.
+
+    Replaces the bare module-level dict to provide a clear mutation API and
+    prevent accidental key typos. Thread-safety note: FastAPI runs on a single
+    asyncio event loop; no locking is needed for these operations.
+    """
+
+    _ESTIMATED_TOTAL_MS = 150_000
+
+    def __init__(self) -> None:
+        self.running = False
+        self.started_at: str | None = None
+        self.current_node: str | None = None
+        self.completed_nodes: list[str] = []
+        self.failed_node: str | None = None
+
+    def reset(self) -> None:
+        """Return to idle state (called before a new run starts)."""
+        self.running = False
+        self.started_at = None
+        self.current_node = None
+        self.completed_nodes = []
+        self.failed_node = None
+
+    def start(self, started_at: str) -> None:
+        self.running = True
+        self.started_at = started_at
+
+    def node_started(self, node_label: str) -> None:
+        self.current_node = node_label
+
+    def node_completed(self, node_label: str, error: str | None = None) -> None:
+        self.completed_nodes.append(node_label)
+        if error:
+            self.failed_node = node_label
+        if self.current_node == node_label:
+            self.current_node = None
+
+    def stop(self, failed_node: str | None = None) -> None:
+        """Mark pipeline as finished. Optionally record which node failed."""
+        self.running = False
+        self.current_node = None
+        if failed_node is not None:
+            self.failed_node = failed_node
+
+    def as_api_dict(self) -> dict:
+        """Return a serialisable snapshot of current progress."""
+        if self.running:
+            elapsed_ms = 0
+            if self.started_at:
+                try:
+                    t0 = datetime.fromisoformat(self.started_at)
+                    elapsed_ms = int(
+                        (datetime.now(timezone.utc) - t0).total_seconds() * 1000
+                    )
+                except (ValueError, TypeError):
+                    pass
+            remaining = max(0, self._ESTIMATED_TOTAL_MS - elapsed_ms)
+            return {
+                "running": True,
+                "started_at": self.started_at,
+                "elapsed_ms": elapsed_ms,
+                "current_node": self.current_node,
+                "completed_nodes": list(self.completed_nodes),
+                "failed_node": self.failed_node,
+                "estimated_remaining_ms": remaining,
+            }
+        return {
+            "running": False,
+            "started_at": None,
+            "elapsed_ms": None,
+            "current_node": None,
+            "completed_nodes": None,
+            "failed_node": None,
+            "estimated_remaining_ms": None,
+        }
 
 
-def _reset_progress() -> None:
-    """Reset the progress state to idle (not running)."""
-    _progress["running"] = False
-    _progress["started_at"] = None
-    _progress["current_node"] = None
-    _progress["completed_nodes"] = []
-    _progress["failed_node"] = None
+_progress = PipelineProgress()
 
 
 def _parse_json_field(value: str | None) -> dict | list | str | None:
@@ -79,58 +142,56 @@ def _ensure_pipeline_log_handler() -> logging.FileHandler:
 
 @router.get("/dashboard")
 async def get_dashboard():
-    conn = get_db()
-    indicators = conn.execute("""
-        SELECT COALESCE(NULLIF(display_name, ''), indicator_name) as name,
-               COALESCE(category, '') as category,
-               value, COALESCE(unit, '') as unit,
-               status, COALESCE(trigger_level, '') as trigger_level,
-               COALESCE(narrative, '') as narrative,
-               recorded_at as fetched_at
-        FROM (
-            SELECT *, ROW_NUMBER() OVER (PARTITION BY indicator_name ORDER BY recorded_at DESC) as rn
-            FROM indicator_history
-        ) WHERE rn = 1
-        ORDER BY category, indicator_name
-    """).fetchall()
-    dots = conn.execute("""
-        SELECT dot_number, dot_name, status, summary, key_signals, sources, analyzed_at
-        FROM (
-            SELECT *, ROW_NUMBER() OVER (PARTITION BY dot_number ORDER BY analyzed_at DESC) as rn
-            FROM dot_analyses WHERE analyzed_at >= datetime('now', '-2 days')
-        ) WHERE rn = 1
-        ORDER BY dot_number
-    """).fetchall()
-    pathways = conn.execute("""
-        SELECT pathway, name, description, active, signals, assessed_at
-        FROM (
-            SELECT *, ROW_NUMBER() OVER (PARTITION BY pathway ORDER BY assessed_at DESC) as rn
-            FROM pathway_status WHERE assessed_at >= datetime('now', '-2 days')
-        ) WHERE rn = 1
-        ORDER BY pathway
-    """).fetchall()
-    report = conn.execute("SELECT * FROM daily_reports ORDER BY date DESC LIMIT 1").fetchone()
-    alerts = conn.execute("SELECT * FROM alerts ORDER BY triggered_at DESC LIMIT 20").fetchall()
-    conn.close()
+    with get_db_ctx() as conn:
+        indicators = conn.execute("""
+            SELECT COALESCE(NULLIF(display_name, ''), indicator_name) as name,
+                   COALESCE(category, '') as category,
+                   value, COALESCE(unit, '') as unit,
+                   status, COALESCE(trigger_level, '') as trigger_level,
+                   COALESCE(narrative, '') as narrative,
+                   recorded_at as fetched_at
+            FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY indicator_name ORDER BY recorded_at DESC) as rn
+                FROM indicator_history
+            ) WHERE rn = 1
+            ORDER BY category, indicator_name
+        """).fetchall()
+        dots = conn.execute("""
+            SELECT dot_number, dot_name, status, summary, key_signals, sources, analyzed_at
+            FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY dot_number ORDER BY analyzed_at DESC) as rn
+                FROM dot_analyses WHERE analyzed_at >= datetime('now', '-2 days')
+            ) WHERE rn = 1
+            ORDER BY dot_number
+        """).fetchall()
+        pathways = conn.execute("""
+            SELECT pathway, name, description, active, signals, assessed_at
+            FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY pathway ORDER BY assessed_at DESC) as rn
+                FROM pathway_status WHERE assessed_at >= datetime('now', '-2 days')
+            ) WHERE rn = 1
+            ORDER BY pathway
+        """).fetchall()
+        report = conn.execute("SELECT * FROM daily_reports ORDER BY date DESC LIMIT 1").fetchone()
+        alerts = conn.execute("SELECT * FROM alerts ORDER BY triggered_at DESC LIMIT 20").fetchall()
 
-    report_dict = dict(report) if report else None
-    if report_dict:
-        report_dict["five_questions"] = _parse_json_field(report_dict.get("five_questions"))
-        report_dict["dot_summary"] = _parse_json_field(report_dict.get("dot_summary"))
-        report_dict["pathway_summary"] = _parse_json_field(report_dict.get("pathway_summary"))
+        report_dict = dict(report) if report else None
+        if report_dict:
+            report_dict["five_questions"] = _parse_json_field(report_dict.get("five_questions"))
+            report_dict["dot_summary"] = _parse_json_field(report_dict.get("dot_summary"))
+            report_dict["pathway_summary"] = _parse_json_field(report_dict.get("pathway_summary"))
 
-    # Parse JSON-stringified array fields on dot and pathway rows
-    dots_parsed = []
-    for r in dots:
-        d = dict(r)
-        d["key_signals"] = _parse_json_field(d.get("key_signals"))
-        dots_parsed.append(d)
+        dots_parsed = []
+        for r in dots:
+            d = dict(r)
+            d["key_signals"] = _parse_json_field(d.get("key_signals"))
+            dots_parsed.append(d)
 
-    pathways_parsed = []
-    for r in pathways:
-        p = dict(r)
-        p["signals"] = _parse_json_field(p.get("signals"))
-        pathways_parsed.append(p)
+        pathways_parsed = []
+        for r in pathways:
+            p = dict(r)
+            p["signals"] = _parse_json_field(p.get("signals"))
+            pathways_parsed.append(p)
 
     return {
         "indicators": [dict(r) for r in indicators],
@@ -154,14 +215,11 @@ async def get_pipeline_status():
     """
     _last_run = get_last_run()
 
-    if not _last_run and not _progress["running"]:
+    if _progress.running and not _progress.completed_nodes:
         return {
             "nodes": [], "edges": [],
             "last_run": None, "total_duration_ms": 0, "success_count": 0,
-            "progress": {
-                "running": False, "started_at": None, "current_node": None,
-                "completed_nodes": [], "failed_node": None,
-            },
+            "progress": _progress.as_api_dict(),
             "scheduler": _get_scheduler_info(),
         }
 
@@ -195,46 +253,16 @@ async def get_pipeline_status():
         total_duration_ms = _last_run.get("total_duration_ms", 0)
         success_count = _last_run.get("success_count", 0)
 
-    # Build progress field
-    progress_resp: dict
-    if _progress["running"]:
-        elapsed_ms = 0
-        if _progress["started_at"]:
-            try:
-                t0 = datetime.fromisoformat(_progress["started_at"])
-                elapsed_ms = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
-            except (ValueError, TypeError):
-                pass
-        remaining = max(0, _progress["estimated_total_ms"] - elapsed_ms)
-        progress_resp = {
-            "running": True,
-            "started_at": _progress["started_at"],
-            "elapsed_ms": elapsed_ms,
-            "current_node": _progress["current_node"],
-            "completed_nodes": list(_progress["completed_nodes"]),
-            "failed_node": _progress["failed_node"],
-            "estimated_remaining_ms": remaining,
-        }
-    else:
-        progress_resp = {
-            "running": False,
-            "started_at": None,
-            "elapsed_ms": None,
-            "current_node": None,
-            "completed_nodes": None,
-            "failed_node": None,
-            "estimated_remaining_ms": None,
-        }
-
     return {
         "nodes": nodes,
         "edges": edges,
         "last_run": last_run_ts,
         "total_duration_ms": total_duration_ms,
         "success_count": success_count,
-        "progress": progress_resp,
+        "progress": _progress.as_api_dict(),
         "scheduler": _get_scheduler_info(),
     }
+
 
 
 def _get_scheduler_info() -> dict:
@@ -248,12 +276,11 @@ def _get_scheduler_info() -> dict:
 
 @router.get("/reports/history")
 async def report_history(days: int = Query(30)):
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT date, end_state, composite_score, confidence, synthesis, briefing FROM daily_reports ORDER BY date DESC LIMIT ?",
-        (days,),
-    ).fetchall()
-    conn.close()
+    with get_db_ctx() as conn:
+        rows = conn.execute(
+            "SELECT date, end_state, composite_score, confidence, synthesis, briefing FROM daily_reports ORDER BY date DESC LIMIT ?",
+            (days,),
+        ).fetchall()
     return {"reports": [dict(r) for r in rows]}
 
 
@@ -290,34 +317,31 @@ async def get_timeseries(
     from_ts = cutoff_date + "T00:00:00Z"
     to_ts = now_date + "T00:00:00Z"
 
-    conn = get_db()
+    with get_db_ctx() as conn:
+        # Per-indicator timeseries: 1 point per day per indicator
+        # (latest value per day via ROW_NUMBER partitioned by DATE)
+        indicator_rows = conn.execute("""
+            SELECT indicator_name, display_name, category, value, unit, status,
+                   strftime('%Y-%m-%dT%H:%M:%SZ', recorded_at) as recorded_at
+            FROM (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY indicator_name, DATE(recorded_at)
+                    ORDER BY recorded_at DESC
+                ) as rn
+                FROM indicator_history
+                WHERE DATE(recorded_at) >= ?
+            )
+            WHERE rn = 1
+            ORDER BY indicator_name, recorded_at
+        """, (cutoff_date,)).fetchall()
 
-    # Per-indicator timeseries: 1 point per day per indicator
-    # (latest value per day via ROW_NUMBER partitioned by DATE)
-    indicator_rows = conn.execute("""
-        SELECT indicator_name, display_name, category, value, unit, status,
-               strftime('%Y-%m-%dT%H:%M:%SZ', recorded_at) as recorded_at
-        FROM (
-            SELECT *, ROW_NUMBER() OVER (
-                PARTITION BY indicator_name, DATE(recorded_at)
-                ORDER BY recorded_at DESC
-            ) as rn
-            FROM indicator_history
-            WHERE DATE(recorded_at) >= ?
-        )
-        WHERE rn = 1
-        ORDER BY indicator_name, recorded_at
-    """, (cutoff_date,)).fetchall()
-
-    # Composite score series from daily_reports (1 row per day by date)
-    composite_rows = conn.execute("""
-        SELECT date as recorded_date, composite_score
-        FROM daily_reports
-        WHERE date >= ?
-        ORDER BY date ASC
-    """, (cutoff_date,)).fetchall()
-
-    conn.close()
+        # Composite score series from daily_reports (1 row per day by date)
+        composite_rows = conn.execute("""
+            SELECT date as recorded_date, composite_score
+            FROM daily_reports
+            WHERE date >= ?
+            ORDER BY date ASC
+        """, (cutoff_date,)).fetchall()
 
     # ── Build series grouped by indicator_name ──
     series_map: dict[str, dict] = {}
@@ -369,6 +393,7 @@ async def get_timeseries(
     }
 
 
+
 # ── Health endpoint (Layer 2) ───────────────────────────────────────────────
 
 @router.get("/system/health")
@@ -383,6 +408,25 @@ async def system_health():
         status_code=503,
         content=health_data,
     )
+
+
+@router.get("/health/fetchers")
+async def health_fetchers():
+    """Observed health metrics for each input data fetcher."""
+    from src.services.fetcher_health import get_all_fetcher_health
+    data = get_all_fetcher_health()
+    fetchers_list = []
+    for name, detail in data.items():
+        fetchers_list.append({
+            "fetcher_name": name,
+            "last_success": detail["last_success"],
+            "last_failure": detail["last_failure"],
+            "last_error": detail["last_error"],
+            "consecutive_failures": detail["consecutive_failures"],
+            "last_24h_success_rate": detail["last_24h_success_rate"],
+        })
+    return {"fetchers": fetchers_list}
+
 
 
 # ── Status endpoint (metrics) ───────────────────────────────────────────────
@@ -430,26 +474,16 @@ async def _on_pipeline_progress(
     event: str,
     error_message: str | None,
 ) -> None:
-    """Progress callback invoked by run_pipeline for each node transition.
-
-    Args:
-        node_label: Human-readable node name (e.g. "Composite Scorer").
-        event: "started" or "completed".
-        error_message: None for "started"; set for "completed" if node failed.
-    """
+    """Progress callback invoked by run_pipeline for each node transition."""
     if event == "started":
-        _progress["current_node"] = node_label
+        _progress.node_started(node_label)
         logger.info("Node started: %s", node_label)
     elif event == "completed":
-        _progress["completed_nodes"].append(node_label)
+        _progress.node_completed(node_label, error_message)
         if error_message:
-            _progress["failed_node"] = node_label
             logger.error("Node failed: %s — %s", node_label, error_message)
         else:
             logger.info("Node completed: %s", node_label)
-        # Clear current_node only if the next node hasn't already set it
-        if _progress["current_node"] == node_label:
-            _progress["current_node"] = None
 
 
 async def _run_pipeline_background() -> None:
@@ -466,10 +500,8 @@ async def _run_pipeline_background() -> None:
     """
     _ensure_pipeline_log_handler()
 
-    # Reset and initialize progress state
-    _reset_progress()
-    _progress["running"] = True
-    _progress["started_at"] = datetime.now(timezone.utc).isoformat()
+    _progress.reset()
+    _progress.start(datetime.now(timezone.utc).isoformat())
     pipeline_start_ts = time.time()
 
     logger.info("Pipeline started — fetching indicators and news")
@@ -479,10 +511,8 @@ async def _run_pipeline_background() -> None:
             progress_callback=_on_pipeline_progress,
         )
 
-        # Update the scheduler's shared _last_run so /api/pipeline/status sees it
-        from src.scheduler import _last_run as _scheduler_last_run
-        import src.scheduler as _sched
-        _sched._last_run = result
+        # Update the scheduler's shared _last_run via the public setter.
+        set_last_run(result)
 
         pipeline_total_ms = int((time.time() - pipeline_start_ts) * 1000)
         logger.info(
@@ -494,11 +524,10 @@ async def _run_pipeline_background() -> None:
 
     except Exception:
         logger.exception("Background pipeline failed")
-        _progress["failed_node"] = _progress["current_node"]
+        _progress.stop(failed_node=_progress.current_node)
 
     finally:
-        _progress["running"] = False
-        _progress["current_node"] = None
+        _progress.stop()
 
 
 @router.post("/trigger/daily")
@@ -530,13 +559,13 @@ async def trigger_daily(
         )
 
     # If a pipeline is already running, don't start another
-    if _progress["running"]:
+    if _progress.running:
         return JSONResponse(
             status_code=200,
             content={
                 "status": "already_running",
                 "message": "Pipeline is already in progress. Check /api/pipeline/status.",
-                "current_node": _progress["current_node"],
+                "current_node": _progress.current_node,
             },
         )
 

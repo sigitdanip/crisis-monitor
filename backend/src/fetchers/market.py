@@ -49,7 +49,7 @@ def _fetch_one(name: str, info: dict[str, Any]) -> dict[str, Any] | None:
             "change": change,
         }
     except Exception:
-        logger.exception("Failed to fetch %s via yfinance", name)
+        logger.warning("Failed to fetch %s via yfinance", name, exc_info=True)
         return None
 
 
@@ -109,7 +109,7 @@ def fetch_gold_200d_ma(ticker_symbol: str = "GC=F") -> float | None:
         logger.info("Gold 200-day MA: %.2f (from %d trading days)", ma, len(data))
         return ma
     except Exception:
-        logger.exception("Failed to fetch gold 200-day MA")
+        logger.warning("Failed to fetch gold 200-day MA", exc_info=True)
         return None
 
 

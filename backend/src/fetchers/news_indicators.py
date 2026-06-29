@@ -87,7 +87,7 @@ def _fetch_newsapi_indicator(
         logger.warning("NewsAPI timeout for indicator '%s' (query: %s)", name, query)
         return None
     except Exception:
-        logger.exception("NewsAPI error for indicator '%s' (query: %s)", name, query)
+        logger.warning("NewsAPI error for indicator '%s' (query: %s)", name, query, exc_info=True)
         return None
 
     # Build narrative from top headlines
@@ -201,7 +201,7 @@ def fetch_all_news_indicators() -> list[dict[str, Any]]:
             if result is not None:
                 results.append(result)
         except Exception:
-            logger.exception("Unexpected error in %s", fn.__name__)
+            logger.warning("Unexpected error in %s", fn.__name__, exc_info=True)
     logger.info("Fetched %d/%d news-derived indicators", len(results), len(fetchers))
     return results
 

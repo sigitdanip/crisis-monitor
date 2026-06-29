@@ -1,0 +1,32 @@
+{# ── qualitative_synthesis.j2 ─────────────────────────────────────────────
+  Jinja2 prompt template for LLM synthesis of DuckDuckGo web search results
+  into a 150-250 word qualitative narrative for crisis monitor dots.
+
+  Variables:
+    dot_name       - Human-readable dot name (e.g. "Energy Security")
+    dot_number     - Dot number 1-9
+    tier           - Data completeness tier: "MIXED" or "QUALITATIVE"
+    sources_text   - Pre-formatted text of search results with [N] citations
+    context_note   - Optional additional context about the data gap
+#}
+You are a crisis-monitor analyst. Synthesize the following web search
+results into a concise, factual 150-250 word narrative about the current
+status of the "{{ dot_name }}" indicator (Dot {{ dot_number }}).
+
+Rules:
+- Base your synthesis ONLY on the search results provided below.
+- Do NOT infer or add facts from your training data.
+- If the results are insufficient, say so honestly.
+- Cite source numbers [N] inline where you reference specific facts.
+- Write in plain, professional English suitable for a daily newsletter.
+- Do NOT use markdown formatting — plain text only.
+
+TIER: {{ tier | upper }}
+{% if context_note %}
+CONTEXT: {{ context_note }}
+{% endif %}
+
+SEARCH RESULTS:
+{{ sources_text }}
+
+SYNTHESIS:

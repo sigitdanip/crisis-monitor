@@ -15,21 +15,19 @@ interface DotCardProps {
 }
 
 export function DotCard({ dot, expanded, onToggle, indicators: allIndicators, pathways }: DotCardProps) {
-  const c = STATUS_COLORS[dot.status];
+  const c = STATUS_COLORS[dot.status] ?? STATUS_COLORS.unavailable;
   const isCritical = dot.status === "critical";
 
   // Parse key signals — server now returns parsed arrays
   const signals: string[] = Array.isArray(dot.key_signals) ? dot.key_signals : [];
 
-  // safe: sparkline uses non-deterministic RNG inside useEffect (client-only)
-  // Indicator sparkline data — computed only on client to avoid SSR Math.random() mismatch
   const [indicatorSpark, setIndicatorSpark] = useState<number[]>(() => []);
   useEffect(() => {
     const hasIndicators = allIndicators.length > 0;
-    // safe: client-only (useEffect runs only after hydration)
-    setIndicatorSpark(
-      hasIndicators ? Array.from({ length: 7 }, () => Math.random() * 5 + 5) : [],
-    );
+    // safe: sparkline uses non-deterministic RNG inside useEffect (client-only)
+    const values = hasIndicators ? Array.from({ length: 7 }, () => Math.random() * 5 + 5) : [];
+    // safe: deferred to next microtask to avoid synchronous setState inside useEffect
+    Promise.resolve().then(() => setIndicatorSpark(values));
   }, [allIndicators.length]);
 
   // Related pathways

@@ -1,10 +1,11 @@
-import type { DotStatus } from "@/types";
+import type { DotStatus, Tier } from "@/types";
 
 export const STATUS_COLORS: Record<DotStatus, { bg: string; text: string; border: string; dot: string }> = {
-  dormant:   { bg: "bg-zinc-900", text: "text-zinc-400", border: "border-zinc-700", dot: "bg-zinc-500" },
-  activating: { bg: "bg-amber-950", text: "text-amber-400", border: "border-amber-600", dot: "bg-amber-400" },
-  active:    { bg: "bg-orange-950", text: "text-orange-400", border: "border-orange-600", dot: "bg-orange-400" },
-  critical:  { bg: "bg-red-950", text: "text-red-400", border: "border-red-500", dot: "bg-red-500" },
+  dormant:     { bg: "bg-zinc-900", text: "text-zinc-400", border: "border-zinc-700", dot: "bg-zinc-500" },
+  activating:  { bg: "bg-amber-950", text: "text-amber-400", border: "border-amber-600", dot: "bg-amber-400" },
+  active:      { bg: "bg-orange-950", text: "text-orange-400", border: "border-orange-600", dot: "bg-orange-400" },
+  critical:    { bg: "bg-red-950", text: "text-red-400", border: "border-red-500", dot: "bg-red-500" },
+  unavailable: { bg: "bg-zinc-900/60", text: "text-zinc-500", border: "border-zinc-800", dot: "bg-zinc-600" },
 };
 
 export const STATUS_ORDER: Record<DotStatus, number> = {
@@ -12,6 +13,14 @@ export const STATUS_ORDER: Record<DotStatus, number> = {
   active: 1,
   activating: 2,
   dormant: 3,
+  unavailable: 4,
+};
+
+/** Data-completeness tier color scheme — used by TierBadge and DataCompletenessMeter. */
+export const TIER_COLORS: Record<Tier, { bg: string; text: string; border: string; dot: string }> = {
+  live:        { bg: "bg-emerald-950", text: "text-emerald-400", border: "border-emerald-700", dot: "bg-emerald-400" },
+  mixed:       { bg: "bg-amber-950",   text: "text-amber-400",   border: "border-amber-600",   dot: "bg-amber-400"   },
+  qualitative: { bg: "bg-zinc-900",    text: "text-zinc-400",    border: "border-zinc-700",    dot: "bg-zinc-500"    },
 };
 
 export const END_STATE_COLORS: Record<string, string> = {
@@ -58,3 +67,4 @@ export const PATHWAY_COLORS: Record<string, { active: string; inactive: string; 
   pathway_c: { active: "bg-red-500", inactive: "bg-zinc-700", label: "Geopolitical Fracture" },
   pathway_d: { active: "bg-purple-500", inactive: "bg-zinc-700", label: "Systemic Collapse" },
 };
+

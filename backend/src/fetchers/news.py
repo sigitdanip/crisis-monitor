@@ -58,7 +58,7 @@ def _fetch_newsapi_headlines() -> list[dict[str, Any]]:
                 except Exception:
                     logger.warning("NewsAPI query '%s' failed", q)
     except Exception:
-        logger.exception("NewsAPI fetch failed")
+        logger.warning("NewsAPI fetch failed", exc_info=True)
     logger.info("NewsAPI: %d headlines", len(headlines))
     return headlines
 
@@ -130,7 +130,7 @@ def _fetch_acled_protests() -> dict[str, Any] | None:
                 "trigger_level": "3+ countries with major protests",
             }
     except Exception:
-        logger.exception("ACLED fetch failed")
+        logger.warning("ACLED fetch failed", exc_info=True)
         return None
 
 

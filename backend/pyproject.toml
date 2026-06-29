@@ -15,4 +15,9 @@ dependencies = [
     "beautifulsoup4",
     "lxml",
     "apscheduler>=3.10",
+    "python-dotenv>=1.0",
+    "jinja2>=3.1",
 ]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

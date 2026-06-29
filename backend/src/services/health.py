@@ -9,6 +9,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from src.db.database import get_db
 
@@ -17,8 +18,13 @@ logger = logging.getLogger("crisis_monitor.health")
 # Process start time (set on import)
 _PROCESS_START = time.time()
 
-# Log file path for error counting
-_LOG_PATH = os.environ.get("CRISIS_LOG_PATH", "/root/crisis-monitor/backend/server.log")
+# Log file path — anchored to this file's backend root, no hardcoded /root/ path.
+# health.py lives at src/services/health.py; parents[2] is the backend/ root.
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+_LOG_PATH = os.environ.get(
+    "CRISIS_LOG_PATH",
+    str(_BACKEND_ROOT / "server.log"),
+)
 
 
 def _iso_now() -> str:

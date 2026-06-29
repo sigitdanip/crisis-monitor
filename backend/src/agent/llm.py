@@ -4,16 +4,66 @@ import json
 import logging
 import os
 import re
+import threading
 from typing import Any
 
 from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)
 
+# ── Token cost tracking ────────────────────────────────────────────────
+# Module-level counters and lock for thread-safe accumulation.
+
+_token_cost_lock = threading.Lock()
+_total_tokens: int = 0
+_total_cost_estimate: float = 0.0
+
+MODEL_COST_PER_1K: dict[str, float] = {
+    "mimo-v2.5": 0.0015,
+    "gpt-4o": 0.005,
+    "gpt-4o-mini": 0.0006,
+    "claude-sonnet-4": 0.003,
+    "deepseek-v4-pro": 0.002,
+}
+
+
+def _estimate_cost(token_count: int, model: str) -> float:
+    """Estimate cost for a given token count and model name."""
+    rate = MODEL_COST_PER_1K.get(model, 0.002)
+    return (token_count / 1000) * rate
+
+
+def track_token_usage(token_count: int, model: str = "") -> None:
+    """Accumulate token usage into module-level counters (thread-safe)."""
+    global _total_tokens, _total_cost_estimate
+    model = model or os.environ.get("LLM_MODEL", "mimo-v2.5")
+    cost = _estimate_cost(token_count, model)
+    with _token_cost_lock:
+        _total_tokens += token_count
+        _total_cost_estimate += cost
+
+
+def get_token_cost() -> dict[str, Any]:
+    """Return cumulative token usage and cost estimate."""
+    with _token_cost_lock:
+        return {
+            "total_tokens": _total_tokens,
+            "total_cost_estimate": round(_total_cost_estimate, 6),
+        }
+
+
+def reset_token_cost() -> None:
+    """Reset cumulative token counters to zero."""
+    global _total_tokens, _total_cost_estimate
+    with _token_cost_lock:
+        _total_tokens = 0
+        _total_cost_estimate = 0.0
+
 
 def get_llm(temperature: float = 0.3, timeout: int = 60) -> ChatOpenAI:
     """Return ChatOpenAI pointed at OpenCode Go."""
     api_key = os.environ.get("OPENCODE_GO_API_KEY", "")
+    # For test inspection: deepseek-v4-pro
     model = os.environ.get("LLM_MODEL", "mimo-v2.5")
     return ChatOpenAI(
         model=model,
@@ -39,21 +89,13 @@ def get_llm_content(resp) -> str:
 
 
 def extract_json(text: str) -> dict:
-    """
-    Extract JSON from LLM output. Tries fenced block first, then raw parse.
-    Returns empty dict on failure — caller handles graceful degradation.
-    """
-    # Try ```json fence
+    """Extract JSON from LLM output. Returns empty dict on failure."""
     m = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(1))
         except json.JSONDecodeError:
             pass
-    # Try JSONDecoder.raw_decode — finds first complete JSON object even with
-    # surrounding text (more robust than greedy regex when LLM includes curly
-    # braces in narrative text before/after the JSON).  Iterates over every
-    # '{' / '[' start position in case earlier ones are not valid JSON.
     for start_char in ('{', '['):
         idx = 0
         while True:
@@ -63,7 +105,7 @@ def extract_json(text: str) -> dict:
             try:
                 decoder = json.JSONDecoder()
                 obj, _ = decoder.raw_decode(text[idx:])
-                if isinstance(obj, dict):
+                if isinstance(obj, (dict, list)):
                     return obj
             except json.JSONDecodeError:
                 pass
@@ -78,33 +120,16 @@ async def call_llm_with_retry(
     base_delay: float = 1.0,
     temperature: float = 0.3,
 ) -> tuple[dict[str, Any], int]:
-    """Call the LLM with retry on transient failures.
-
-    Creates an LLM instance via get_llm(), invokes with the prompt, extracts
-    content via get_llm_content(), and parses JSON via extract_json().
-
-    On failure (timeout, network error, 5xx), retries up to max_attempts
-    times with exponential backoff (base_delay, base_delay*2, ...).
-
-    Args:
-        prompt: The full prompt string to send.
-        max_attempts: Maximum call attempts (default 2).
-        timeout: Per-call timeout in seconds (default 60).
-        base_delay: Initial backoff delay in seconds (default 1.0).
-        temperature: LLM temperature (default 0.3).
-
-    Returns:
-        Tuple of (parsed_json_dict, attempt_count) on success.
-
-    Raises:
-        The last exception after exhausting all attempts.
-    """
+    """Call the LLM with retry on transient failures."""
     last_exception: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
             llm = get_llm(temperature=temperature, timeout=timeout)
             resp = await llm.ainvoke(prompt)
             content = get_llm_content(resp)
+            # Track token usage (estimate)
+            estimated_tokens = (len(prompt) + len(content)) // 4
+            track_token_usage(estimated_tokens)
             result = extract_json(content)
             if not result:
                 logger.warning(
@@ -128,6 +153,5 @@ async def call_llm_with_retry(
                     max_attempts, exc,
                 )
 
-    # All attempts exhausted — raise the last exception
     assert last_exception is not None
     raise last_exception

@@ -50,7 +50,7 @@ def _fetch_yf_one(name: str, info: dict[str, Any]) -> dict[str, Any] | None:
             "trigger_level": info["trigger_level"],
         }
     except Exception:
-        logger.exception("Failed yfinance fetch for %s", name)
+        logger.warning("Failed yfinance fetch for %s", name, exc_info=True)
         return None
 
 
@@ -106,7 +106,7 @@ def _fetch_fao_fpi() -> dict[str, Any] | None:
                 logger.info("FAO fallback returned 200 but regex didn't match a value")
     except Exception:
         logger.warning("FAO fallback fetch failed")
-    logger.info("FAO FPI unavailable — both endpoints failed")
+    logger.warning("FAO FPI unavailable — both endpoints failed")
     return None
 
 
@@ -127,7 +127,7 @@ def _fetch_bdi() -> dict[str, Any] | None:
             "trigger_level": "<1,000 (demand collapse)",
         }
     except Exception:
-        logger.exception("Failed BDI fetch")
+        logger.warning("Failed BDI fetch", exc_info=True)
         return None
 
 

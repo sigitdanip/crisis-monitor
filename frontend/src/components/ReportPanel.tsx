@@ -262,7 +262,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
         <h3 className="text-xs font-mono text-zinc-500 mb-3">DOT STATUS</h3>
         <div className="space-y-1">
           {sortedDots.map((dot, idx) => {
-            const dc = STATUS_COLORS[dot.status];
+            const dc = STATUS_COLORS[dot.status] ?? STATUS_COLORS.unavailable;
             return (
               <div key={`dot-${dot.dot_number}-${idx}`} className="flex items-center gap-3 px-2 py-1 rounded bg-zinc-900/40">
                 <span className="text-xs font-mono text-zinc-600 w-8">D{dot.dot_number}</span>

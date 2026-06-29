@@ -66,7 +66,7 @@ def _fetch_eu_gas_storage() -> dict[str, Any] | None:
             logger.info("AGSI: unexpected response shape — returning None gracefully")
             return None
     except Exception:
-        logger.exception("EU gas storage fetch failed")
+        logger.warning("EU gas storage fetch failed", exc_info=True)
         return None
 
 
@@ -127,7 +127,7 @@ def _fetch_ttf_gas() -> dict[str, Any] | None:
             "trigger_level": ">45 EUR/MWh",
         }
     except Exception:
-        logger.exception("TTF gas fetch failed")
+        logger.warning("TTF gas fetch failed", exc_info=True)
         return None
 
 

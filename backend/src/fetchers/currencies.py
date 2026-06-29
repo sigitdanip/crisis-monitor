@@ -50,7 +50,7 @@ def _fetch_currency(name: str, info: dict[str, Any]) -> dict[str, Any] | None:
             "trigger_level": info["trigger_level"],
         }
     except Exception:
-        logger.exception("Failed FX fetch for %s", name)
+        logger.warning("Failed FX fetch for %s", name, exc_info=True)
         return None
 
 
