@@ -276,9 +276,9 @@ class TestSynthesizeDot:
         )
         mock_llm.ainvoke = AsyncMock(return_value=mock_resp)
 
-        with patch("src.agent.llm.get_llm", return_value=mock_llm):
-            with patch("src.agent.llm.get_llm_content", return_value=mock_resp.content):
-                with patch("src.agent.llm.track_token_usage"):
+        with patch("src.services.qualitative_fallback.get_llm", return_value=mock_llm):
+            with patch("src.services.qualitative_fallback.get_llm_content", return_value=mock_resp.content):
+                with patch("src.services.qualitative_fallback.track_token_usage"):
                     result = await synthesize_dot(2, search_results, "mixed")
 
         assert result["no_data"] is False
@@ -300,7 +300,7 @@ class TestSynthesizeDot:
         mock_llm = MagicMock()
         mock_llm.ainvoke = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
 
-        with patch("src.agent.llm.get_llm", return_value=mock_llm):
+        with patch("src.services.qualitative_fallback.get_llm", return_value=mock_llm):
             result = await synthesize_dot(5, search_results, "qualitative")
 
         assert "test snippet" in result["synthesis"].lower()
@@ -326,9 +326,9 @@ class TestSynthesizeDot:
         mock_resp.content = long_content
         mock_llm.ainvoke = AsyncMock(return_value=mock_resp)
 
-        with patch("src.agent.llm.get_llm", return_value=mock_llm):
-            with patch("src.agent.llm.get_llm_content", return_value=long_content):
-                with patch("src.agent.llm.track_token_usage"):
+        with patch("src.services.qualitative_fallback.get_llm", return_value=mock_llm):
+            with patch("src.services.qualitative_fallback.get_llm_content", return_value=long_content):
+                with patch("src.services.qualitative_fallback.track_token_usage"):
                     result = await synthesize_dot(1, search_results, "mixed")
 
         assert len(result["synthesis"]) <= 1300  # Allow some margin

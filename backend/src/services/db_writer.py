@@ -8,6 +8,7 @@ sole entry point.
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from src.db.database import get_db_ctx
 
@@ -41,6 +42,10 @@ def save_pipeline_results(state: dict) -> None:
 # ── Internal helpers ──────────────────────────────────────────────────────
 
 
+def _is_structured_value(val: Any) -> bool:
+    return isinstance(val, dict) and "data_status" in val
+
+
 def _save_indicators(conn, state: dict) -> None:
     """Write one indicator_history row per indicator slug."""
     # Import here to avoid circular imports at module load time;
@@ -72,9 +77,22 @@ def _save_indicators(conn, state: dict) -> None:
             db_val = None if isinstance(val, str) and val == "" else val
             conn.execute(
                 "INSERT INTO indicator_history"
-                " (indicator_name, display_name, category, value, unit, status, trigger_level, narrative)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (slug, display_name, category, db_val, unit, status, trigger, narrative),
+                " (indicator_name, display_name, category, value, unit, status, trigger_level, narrative, data_status)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (slug, display_name, category, db_val, unit, status, trigger, narrative, "live"),
+            )
+
+        elif _is_structured_value(val):
+            from src.agent.indicator_narrator import _extract_scalar
+            scalar = _extract_scalar(val)
+            status = val.get("status") or (_assess(scalar, meta) if meta else "normal")
+            narrative = narratives.get(slug, "") or val.get("narrative", "") or news_narratives.get(slug, "")
+            db_val = None if isinstance(scalar, str) and scalar == "" else scalar
+            conn.execute(
+                "INSERT INTO indicator_history"
+                " (indicator_name, display_name, category, value, unit, status, trigger_level, narrative, data_status)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (slug, display_name, category, db_val, unit or val.get("unit", ""), status, trigger, narrative, val.get("data_status", "live")),
             )
 
         elif _is_news_flag(val):
@@ -83,9 +101,9 @@ def _save_indicators(conn, state: dict) -> None:
             narrative = val.get("narrative", "")
             conn.execute(
                 "INSERT INTO indicator_history"
-                " (indicator_name, display_name, category, value, unit, status, trigger_level, narrative)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (slug, display_name, category, flag_value, unit or "flag", status, trigger, narrative),
+                " (indicator_name, display_name, category, value, unit, status, trigger_level, narrative, data_status)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (slug, display_name, category, flag_value, unit or "flag", status, trigger, narrative, val.get("data_status", "live")),
             )
 
         else:
@@ -96,9 +114,9 @@ def _save_indicators(conn, state: dict) -> None:
                 narrative = "No data and no recent news coverage."
             conn.execute(
                 "INSERT INTO indicator_history"
-                " (indicator_name, display_name, category, value, unit, status, trigger_level, narrative)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (slug, display_name, category, None, unit, "unknown", trigger, narrative),
+                " (indicator_name, display_name, category, value, unit, status, trigger_level, narrative, data_status)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (slug, display_name, category, None, unit, "unknown", trigger, narrative, "unavailable"),
             )
 
 
@@ -113,8 +131,8 @@ def _save_dot_analyses(conn, dots: dict) -> None:
             sources_raw = json.dumps(sources_raw)
         conn.execute(
             "INSERT INTO dot_analyses"
-            " (dot_number, dot_name, status, summary, key_signals, sources)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            " (dot_number, dot_name, status, summary, key_signals, sources, tier)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 dot_num,
                 dot_key,
@@ -122,6 +140,7 @@ def _save_dot_analyses(conn, dots: dict) -> None:
                 dot_data.get("summary", ""),
                 json.dumps(dot_data.get("key_signals", [])),
                 sources_raw,
+                dot_data.get("tier", "live"),
             ),
         )
 

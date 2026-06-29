@@ -20,15 +20,26 @@ logger = logging.getLogger("crisis_monitor.pipeline_runner")
 def _save_last_run_to_db(run_data: dict) -> None:
     """Persist pipeline run data to the pipeline_runs table."""
     try:
+        import json
+        from src.services.tier_classifier import classify_dots, overall_tier
+        
+        # Calculate overall tier from indicators
+        indicators = run_data.get("indicators", {})
+        dot_tiers = classify_dots(indicators)
+        run_overall_tier = overall_tier(dot_tiers)
+        
+        errors = json.dumps(run_data.get("errors", []))
+        trigger_source = run_data.get("trigger_source", "")
+
         conn = get_db()
         conn.execute(
-            "INSERT INTO pipeline_runs (run_data) VALUES (?)",
-            (json.dumps(run_data),),
+            "INSERT INTO pipeline_runs (run_data, errors, trigger_source, overall_tier) VALUES (?, ?, ?, ?)",
+            (json.dumps(run_data), errors, trigger_source, run_overall_tier),
         )
         conn.commit()
         conn.close()
     except Exception:
-        logger.warning("Failed to persist pipeline run to DB")
+        logger.warning("Failed to persist pipeline run to DB", exc_info=True)
 
 
 def _load_last_run_from_db() -> dict | None:

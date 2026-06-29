@@ -69,6 +69,7 @@ _CREATE_TABLES = """
         status TEXT NOT NULL,
         trigger_level TEXT DEFAULT '',
         narrative TEXT DEFAULT '',
+        data_status TEXT DEFAULT 'live',
         recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS dot_analyses (
@@ -79,6 +80,7 @@ _CREATE_TABLES = """
         summary TEXT NOT NULL,
         key_signals TEXT,
         sources TEXT DEFAULT '[]',
+        tier TEXT DEFAULT 'live',
         analyzed_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS pathway_status (
@@ -115,7 +117,10 @@ _CREATE_TABLES = """
     CREATE TABLE IF NOT EXISTS pipeline_runs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         run_data TEXT NOT NULL,
-        completed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        completed_at TEXT NOT NULL DEFAULT (datetime('now')),
+        errors TEXT DEFAULT '',
+        trigger_source TEXT DEFAULT '',
+        overall_tier TEXT DEFAULT 'live'
     );
     CREATE INDEX IF NOT EXISTS idx_indicators_category ON indicators(category);
     CREATE INDEX IF NOT EXISTS idx_history_name_time ON indicator_history(indicator_name, recorded_at);
@@ -145,6 +150,11 @@ _MIGRATIONS: list[tuple[int, str]] = [
     (8, "ALTER TABLE pathway_status ADD COLUMN description TEXT DEFAULT ''"),
     (9, "ALTER TABLE dot_analyses ADD COLUMN sources TEXT DEFAULT '[]'"),
     (10, "ALTER TABLE daily_reports ADD COLUMN trigger_source TEXT DEFAULT ''"),
+    (11, "ALTER TABLE dot_analyses ADD COLUMN tier TEXT DEFAULT 'live'"),
+    (12, "ALTER TABLE pipeline_runs ADD COLUMN errors TEXT DEFAULT ''"),
+    (13, "ALTER TABLE pipeline_runs ADD COLUMN trigger_source TEXT DEFAULT ''"),
+    (14, "ALTER TABLE pipeline_runs ADD COLUMN overall_tier TEXT DEFAULT 'live'"),
+    (15, "ALTER TABLE indicator_history ADD COLUMN data_status TEXT DEFAULT 'live'"),
 ]
 
 

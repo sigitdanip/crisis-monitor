@@ -157,7 +157,7 @@ async def get_dashboard():
             ORDER BY category, indicator_name
         """).fetchall()
         dots = conn.execute("""
-            SELECT dot_number, dot_name, status, summary, key_signals, sources, analyzed_at
+            SELECT dot_number, dot_name, status, summary, key_signals, sources, analyzed_at, tier
             FROM (
                 SELECT *, ROW_NUMBER() OVER (PARTITION BY dot_number ORDER BY analyzed_at DESC) as rn
                 FROM dot_analyses WHERE analyzed_at >= datetime('now', '-2 days')

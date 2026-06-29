@@ -37,10 +37,16 @@ logger = logging.getLogger(__name__)
 _DOT_SEMAPHORE = asyncio.Semaphore(2)
 
 
-async def _analyze_gated(analyzer, indicators, composite, news):
+async def _analyze_gated(analyzer, indicators, composite, news, tiers=None, qualitative_sources=None):
     """Call a dot analyzer under the concurrency semaphore (max 2 at once)."""
     async with _DOT_SEMAPHORE:
-        return await analyzer(indicators, composite, news)
+        return await analyzer(
+            indicators=indicators,
+            composite=composite,
+            news=news,
+            tiers=tiers,
+            qualitative_sources=qualitative_sources,
+        )
 
 
 # ============================================================
@@ -185,24 +191,56 @@ async def node_indicator_narrator(state: CrisisState) -> CrisisState:
 
 
 async def node_dot_analyzers(state: CrisisState) -> CrisisState:
-    """Run all 5 dot analyzer LLMs gated by concurrency semaphore (max 2 at once).
-
-    Each analyzer acquires ``_DOT_SEMAPHORE(2)`` before its LLM call so at most
-    2 HTTP requests fire concurrently, eliminating the rate-limit/throttle
-    pattern that caused 4/5 analyzers to fall back under parallel load.
+    """Run all 5 dot analyzer LLMs gated by concurrency semaphore (max 2 at once),
+    incorporating qualitative fallback search for mixed/qualitative dots.
     """
     t0 = time.time()
     indicators = state["indicators"]
     composite = state["composite_score"] or {"composite": 0, "interpretation": "unknown"}
     news = state.get("news")
 
-    # Run all 5 gated by semaphore — at most 2 LLM calls fire concurrently.
+    from src.services import init_fallback_run, classify_dots, run_qualitative_fallback, get_fallback_cost
+
+    # 1. Initialize qualitative fallback run state
+    init_fallback_run()
+
+    # 2. Classify dot completeness tiers
+    dot_tiers = classify_dots(indicators)
+
+    # 3. Identify and execute qualitative fallback searches for mixed/qualitative dots
+    fallback_tasks = {}
+    for dot_num in range(1, 10):
+        tier = dot_tiers.get(dot_num, "live")
+        if tier in ("mixed", "qualitative"):
+            fallback_tasks[dot_num] = run_qualitative_fallback(dot_num, tier=tier)
+
+    qualitative_sources = {}
+    if fallback_tasks:
+        fallback_results = await asyncio.gather(*fallback_tasks.values(), return_exceptions=True)
+        for dot_num, result in zip(fallback_tasks.keys(), fallback_results):
+            dot_key = f"dot_{dot_num}"
+            if isinstance(result, Exception):
+                logger.error("Qualitative fallback failed for %s", dot_key, exc_info=result)
+                qualitative_sources[dot_key] = []
+            else:
+                qualitative_sources[dot_key] = result.get("sources", [])
+                logger.info(
+                    "Qualitative fallback completed for %s: %d sources retrieved",
+                    dot_key,
+                    len(qualitative_sources[dot_key])
+                )
+
+    # 4. Construct tiers dict (with dot_ keys and em_currency defaulted to 'live')
+    tiers = {f"dot_{num}": dot_tiers.get(num, "live") for num in range(1, 10)}
+    tiers["em_currency"] = "live"
+
+    # 5. Run all 5 gated by semaphore — at most 2 LLM calls fire concurrently.
     results = await asyncio.gather(
-        _analyze_gated(analyze_geopolitical, indicators, composite, news),
-        _analyze_gated(analyze_food_debt, indicators, composite, news),
-        _analyze_gated(analyze_financial_em, indicators, composite, news),
-        _analyze_gated(analyze_china_political, indicators, composite, news),
-        _analyze_gated(analyze_health, indicators, composite, news),
+        _analyze_gated(analyze_geopolitical, indicators, composite, news, tiers, qualitative_sources),
+        _analyze_gated(analyze_food_debt, indicators, composite, news, tiers, qualitative_sources),
+        _analyze_gated(analyze_financial_em, indicators, composite, news, tiers, qualitative_sources),
+        _analyze_gated(analyze_china_political, indicators, composite, news, tiers, qualitative_sources),
+        _analyze_gated(analyze_health, indicators, composite, news, tiers, qualitative_sources),
         return_exceptions=True,
     )
 
@@ -215,7 +253,7 @@ async def node_dot_analyzers(state: CrisisState) -> CrisisState:
         agent_num = i + 1
         if isinstance(result, Exception):
             # Use rule-based fallback when LLM call fails
-            fallback = dot_fallback(name, indicators)
+            fallback = dot_fallback(name, indicators, tiers=tiers)
             merged.update(fallback)
             dur = 0  # no real duration since it failed instantly
             _record_timing(state, f"Agent {agent_num} ({name})", "agent", "fallback", dur,
@@ -228,8 +266,21 @@ async def node_dot_analyzers(state: CrisisState) -> CrisisState:
             _record_timing(state, f"Agent {agent_num} ({name})", "agent", "success", dur,
                            output_summary=f"{dot_count} dots analyzed")
             state["success_count"] += 1
+    for dot_key, dot_data in merged.items():
+        if isinstance(dot_data, dict):
+            dot_data["tier"] = tiers.get(dot_key, "live")
 
     state["dot_analyses"] = merged
+
+    # 6. Log total qualitative fallback costs
+    cost = get_fallback_cost()
+    if cost and cost.get("total_tokens", 0) > 0:
+        logger.info(
+            "Qualitative fallback total tokens: %d (estimated cost: $%f)",
+            cost["total_tokens"],
+            cost["total_cost_estimate"]
+        )
+
     dur = (time.time() - t0) * 1000
     _record_timing(state, "Dot Analyzers (parallel)", "agent", "success", dur,
                    output_summary=f"{len(merged)} total dots from 5 agents")
