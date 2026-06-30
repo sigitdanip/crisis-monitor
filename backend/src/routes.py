@@ -180,6 +180,7 @@ async def get_dashboard():
             report_dict["five_questions"] = _parse_json_field(report_dict.get("five_questions"))
             report_dict["dot_summary"] = _parse_json_field(report_dict.get("dot_summary"))
             report_dict["pathway_summary"] = _parse_json_field(report_dict.get("pathway_summary"))
+            report_dict["category_rss_scores"] = _parse_json_field(report_dict.get("category_rss_scores"))
 
         dots_parsed = []
         for r in dots:

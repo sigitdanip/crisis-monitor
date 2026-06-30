@@ -67,7 +67,6 @@ def _fetch_newsapi_headlines() -> list[dict[str, Any]]:
 
 WHO_RSS_FEEDS = [
     "https://www.who.int/rss-feeds/news-english.xml",
-    "https://www.who.int/feeds/entity/don/en/rss.xml",
 ]
 
 
@@ -99,76 +98,16 @@ def _fetch_who_rss() -> list[dict[str, Any]]:
 # ---- ACLED ----
 
 def _fetch_acled_protests() -> dict[str, Any] | None:
-    """Fetch ACLED protest event count."""
-    api_key = os.environ.get("ACLED_API_KEY")
-    email = os.environ.get("ACLED_EMAIL")
-    if not api_key or not email:
-        logger.info("ACLED_API_KEY/EMAIL not set — skipping protest data")
-        return None
-    try:
-        with httpx.Client(timeout=20.0) as client:
-            r = client.get(
-                "https://api.acleddata.com/acled/read",
-                params={
-                    "key": api_key,
-                    "email": email,
-                    "event_type": "Protests",
-                    "limit": 100,
-                    "event_date": "2025-06-01|2025-06-30",
-                    "event_date_where": "BETWEEN",
-                },
-            )
-            r.raise_for_status()
-            data = r.json()
-            count = data.get("count", len(data.get("data", [])))
-            return {
-                "name": "ACLED Protest Events",
-                "category": "Political",
-                "value": count,
-                "unit": "events/month",
-                "status": "normal",
-                "trigger_level": "3+ countries with major protests",
-            }
-    except Exception:
-        logger.warning("ACLED fetch failed", exc_info=True)
-        return None
-
+    """Fetch ACLED protest event count (Disabled / Discarded)."""
+    logger.info("ACLED fetcher is disabled/discarded")
+    return None
 
 # ---- RCP Polls ----
 
 def _fetch_rcp_polls() -> dict[str, Any] | None:
-    """Scrape RealClearPolitics generic ballot or approval polling average."""
-    # ponytail: HTML scrape with narrow regex; fragile but free.
-    # If RCP changes layout, falls back to None (graceful degradation).
-    try:
-        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-            r = client.get(
-                "https://www.realclearpolling.com/polls/state-of-the-union/trump-approval",
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            r.raise_for_status()
-            # Look for approval average pattern: "XX.X%"
-            # ponytail: fragile regex — RCP markup changes; no API available
-            matches = re.findall(r'(\d+\.\d+)%', r.text)
-            if len(matches) >= 2:
-                approve = float(matches[0])
-                disapprove = float(matches[1])
-                return {
-                    "name": "Trump Approval Rating",
-                    "category": "Political",
-                    "value": approve,
-                    "unit": "% approve",
-                    "status": "normal",
-                    "trigger_level": "<40%",
-                    "metadata": f"disapprove={disapprove}%",
-                }
-            return None
-    except httpx.HTTPStatusError:
-        logger.warning("RCP scrape failed — HTTP %s (anti-bot protection)")
-        return None
-    except Exception:
-        logger.warning("RCP scrape failed")
-        return None
+    """Scrape RealClearPolitics generic ballot or approval polling average (Disabled / Discarded)."""
+    logger.info("RCP polls fetcher is disabled/discarded")
+    return None
 
 
 def fetch_all_news() -> list[dict[str, Any]]:

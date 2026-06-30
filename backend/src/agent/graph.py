@@ -32,13 +32,36 @@ from src.db.database import get_db
 logger = logging.getLogger(__name__)
 
 # Module-level semaphore to cap concurrent LLM calls during dot analysis.
-# Empirically: 5 concurrent calls caused 80% rate-limit fallback rate;
-# capping at 2 drops it to <10% while adding only ~10-15s of serial time.
-_DOT_SEMAPHORE = asyncio.Semaphore(2)
+# Strategy: semaphore=1 (strictly serial) + per-slot stagger delays spread
+# agent launches so the provider never sees a simultaneous request burst.
+# At 2 rps burst tolerance this removes 429s without meaningful latency cost
+# because agents are I/O-bound and the semaphore queue keeps the GPU warm.
+_DOT_SEMAPHORE = asyncio.Semaphore(1)
+
+# Delay (seconds) injected before each agent acquires the semaphore.
+# Agent 0 fires immediately; each subsequent slot waits an additional
+# AGENT_STAGGER_DELAY seconds, spacing out the burst.
+_AGENT_STAGGER_DELAY = 2.0
 
 
-async def _analyze_gated(analyzer, indicators, composite, news, tiers=None, qualitative_sources=None):
-    """Call a dot analyzer under the concurrency semaphore (max 2 at once)."""
+async def _analyze_gated(
+    analyzer,
+    indicators,
+    composite,
+    news,
+    tiers=None,
+    qualitative_sources=None,
+    stagger_index: int = 0,
+):
+    """Call a dot analyzer under the concurrency semaphore (strictly serial).
+
+    stagger_index controls the pre-delay injected *before* acquiring the
+    semaphore so that agents don't all pile up at the lock simultaneously,
+    which would still create a burst once the first slot releases.
+    """
+    # Stagger: agent 0 starts immediately, each later slot waits a bit longer
+    if stagger_index > 0:
+        await asyncio.sleep(stagger_index * _AGENT_STAGGER_DELAY)
     async with _DOT_SEMAPHORE:
         return await analyzer(
             indicators=indicators,
@@ -234,13 +257,15 @@ async def node_dot_analyzers(state: CrisisState) -> CrisisState:
     tiers = {f"dot_{num}": dot_tiers.get(num, "live") for num in range(1, 10)}
     tiers["em_currency"] = "live"
 
-    # 5. Run all 5 gated by semaphore — at most 2 LLM calls fire concurrently.
+    # 5. Run all 5 agents sequentially via semaphore=1 + staggered pre-delays.
+    # Stagger indices (0-4) space out lock acquisition so the provider never
+    # sees simultaneous requests even as agents queue behind the semaphore.
     results = await asyncio.gather(
-        _analyze_gated(analyze_geopolitical, indicators, composite, news, tiers, qualitative_sources),
-        _analyze_gated(analyze_food_debt, indicators, composite, news, tiers, qualitative_sources),
-        _analyze_gated(analyze_financial_em, indicators, composite, news, tiers, qualitative_sources),
-        _analyze_gated(analyze_china_political, indicators, composite, news, tiers, qualitative_sources),
-        _analyze_gated(analyze_health, indicators, composite, news, tiers, qualitative_sources),
+        _analyze_gated(analyze_geopolitical,    indicators, composite, news, tiers, qualitative_sources, stagger_index=0),
+        _analyze_gated(analyze_food_debt,       indicators, composite, news, tiers, qualitative_sources, stagger_index=1),
+        _analyze_gated(analyze_financial_em,    indicators, composite, news, tiers, qualitative_sources, stagger_index=2),
+        _analyze_gated(analyze_china_political, indicators, composite, news, tiers, qualitative_sources, stagger_index=3),
+        _analyze_gated(analyze_health,          indicators, composite, news, tiers, qualitative_sources, stagger_index=4),
         return_exceptions=True,
     )
 
@@ -290,6 +315,14 @@ async def node_dot_analyzers(state: CrisisState) -> CrisisState:
 async def node_pathway_synthesizer(state: CrisisState) -> CrisisState:
     """Agent 6: Synthesize pathways from dot analyses."""
     t0 = time.time()
+    composite = state["composite_score"] or {"composite": 0, "interpretation": "unknown"}
+    
+    if composite.get("dashboard_state") == "INDETERMINATE":
+        state["pathways"] = {"override": "INDETERMINATE - circuit breaker active"}
+        _record_timing(state, "Pathway Synthesizer", "synthesizer", "bypassed", 0,
+                       output_summary="Bypassed due to INDETERMINATE circuit breaker")
+        return state
+
     try:
         pathways = await synthesize_pathways(
             state["dot_analyses"] or {},
@@ -319,6 +352,24 @@ async def node_pathway_synthesizer(state: CrisisState) -> CrisisState:
 async def node_end_state_assessor(state: CrisisState) -> CrisisState:
     """Agent 7: Determine end state + answer 5 questions."""
     t0 = time.time()
+    composite = state["composite_score"] or {"composite": 0, "interpretation": "unknown"}
+    
+    if composite.get("dashboard_state") == "INDETERMINATE":
+        state["end_state"] = {
+            "end_state": "unknown", 
+            "headline": "SYSTEM INDETERMINATE: Insufficient live data to assess end state.",
+            "briefing": "The crisis monitor has entered an indeterminate state due to a critical lack of live data from core indicator sources. Automated synthesis is temporarily suspended until data feeds are restored.",
+            "confidence": 0.0,
+            "q1": {"answer": "Data unavailable.", "verdict": "transitional"},
+            "q2": {"answer": "Data unavailable.", "trigger_region": "Unknown", "trigger_probability": 0.0},
+            "q3": {"answer": "Data unavailable.", "probability": 0.0},
+            "q4": {"answer": "Data unavailable.", "assessment": "ineffective"},
+            "q5": {"answer": "Data unavailable.", "indicator": "Unknown", "rationale": "Unknown"}
+        }
+        _record_timing(state, "End State Assessor", "assessor", "bypassed", 0,
+                       output_summary="Bypassed due to INDETERMINATE circuit breaker")
+        return state
+
     try:
         end_state = await assess_end_state(
             state["dot_analyses"] or {},

@@ -174,8 +174,9 @@ def _save_daily_report(conn, state: dict) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO daily_reports"
         " (date, dot_summary, pathway_summary, end_state, synthesis,"
-        "  five_questions, confidence, composite_score, briefing, trigger_source)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "  five_questions, confidence, composite_score, briefing, trigger_source,"
+        "  dashboard_state, category_rss_scores)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             today,
             json.dumps(state.get("dot_analyses") or {}),
@@ -193,5 +194,7 @@ def _save_daily_report(conn, state: dict) -> None:
             composite_score,
             briefing,
             state.get("trigger_source", ""),
+            state.get("composite_score", {}).get("dashboard_state", "ACTIVE"),
+            json.dumps(state.get("composite_score", {}).get("category_rss_scores", {})),
         ),
     )

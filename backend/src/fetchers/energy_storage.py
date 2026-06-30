@@ -82,7 +82,8 @@ def _fetch_us_spr() -> dict[str, Any] | None:
                 f"{EIA_API}/petroleum/stoc/wstk/data/",
                 params={
                     "api_key": api_key,
-                    "facets[series]": "WCSSTUS1",
+                    "facets[series][]": "WCSSTUS1",
+                    "data[0]": "value",
                     "sort[0][column]": "period",
                     "sort[0][direction]": "desc",
                     "length": 1,
@@ -92,7 +93,8 @@ def _fetch_us_spr() -> dict[str, Any] | None:
             data = r.json()
             rows = data.get("response", {}).get("data", [])
             if rows:
-                value = float(rows[0].get("value", 0))
+                # EIA returns values in thousand barrels; convert to million barrels
+                value = round(float(rows[0].get("value", 0)) / 1000, 1)
                 return {
                     "name": "US SPR Level",
                     "category": "Energy",
@@ -132,31 +134,7 @@ def _fetch_ttf_gas() -> dict[str, Any] | None:
 
 
 def _fetch_fbx() -> dict[str, Any] | None:
-    """Fetch Freightos Baltic Index (FBX) — global container freight."""
-    try:
-        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-            r = client.get(
-                "https://fbx.freightos.com/api/ticker",
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            if r.status_code == 200:
-                data = r.json()
-                value = float(data.get("fbx", {}).get("global", 0))
-                if value > 0:
-                    return {
-                        "name": "Freightos Baltic Global",
-                        "category": "Supply Chain",
-                        "value": value,
-                        "unit": "USD/FEU",
-                        "status": "normal",
-                        "trigger_level": ">5000 USD/FEU Asia-Europe",
-                    }
-            logger.warning("Freightos API returned HTTP %d", r.status_code)
-    except httpx.HTTPStatusError:
-        logger.warning("Freightos API HTTP error")
-    except Exception:
-        logger.warning("FBX fetch failed")
-    # Fallback: ETF proxy (BOAT) loosely tracks container rates
+    """Fetch BOAT ETF proxy for global container freight (fallback for Freightos Baltic Index)."""
     try:
         tk = yf.Ticker("BOAT")
         data = tk.history(period="5d")
@@ -171,7 +149,7 @@ def _fetch_fbx() -> dict[str, Any] | None:
                 "trigger_level": "proxy decline >20%",
             }
     except Exception:
-        pass
+        logger.warning("FBX proxy (BOAT) fetch failed", exc_info=True)
     return None
 
 

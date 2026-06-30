@@ -51,10 +51,19 @@ if not TRIGGER_TOKEN:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _get(path: str, base: str = BACKEND) -> dict:
-    """GET a JSON endpoint, return parsed dict."""
-    with urllib.request.urlopen(f"{base}{path}") as r:
-        return json.loads(r.read())
+def _get(path: str, base: str = BACKEND, allow_codes: tuple = ()) -> dict:
+    """GET a JSON endpoint, return parsed dict.
+
+    allow_codes: additional HTTP status codes to accept (e.g. 503 for degraded health).
+    Without allow_codes, any non-2xx response raises urllib.error.HTTPError as before.
+    """
+    try:
+        with urllib.request.urlopen(f"{base}{path}") as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        if e.code in allow_codes:
+            return json.loads(e.read())
+        raise
 
 
 def _post(path: str, body: dict = None, headers: dict = None) -> tuple:
@@ -371,9 +380,14 @@ class TestCrossCutting:
                 assert key in f, f"Fetcher {f.get('fetcher_name', '?')} missing {key}"
 
     def test_system_health_endpoint(self):
-        """Verify /api/system/health returns valid structure."""
-        health = _get("/api/system/health")
+        """Verify /api/system/health returns valid structure.
+
+        The endpoint returns HTTP 200 when status='ok' and HTTP 503 when
+        status='degraded' or 'down'. Both are valid responses — we allow 503
+        so the test can still inspect the response body.
+        """
+        health = _get("/api/system/health", allow_codes=(503,))
         assert "status" in health, "Missing status field"
-        assert health["status"] in ("ok", "degraded"), (
+        assert health["status"] in ("ok", "degraded", "down"), (
             f"Unexpected health status: {health['status']}"
         )

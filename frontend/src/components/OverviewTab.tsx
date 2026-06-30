@@ -2,7 +2,7 @@
 import { useState, useMemo } from "react";
 import type { DashboardData } from "@/types";
 import { getDotDisplayName, getPathwayName } from "@/types";
-import { compositeColor, END_STATE_COLORS } from "@/lib/colors";
+import { compositeColor, END_STATE_COLORS, CATEGORY_NAMES } from "@/lib/colors";
 import { RadialGauge } from "./ui/RadialGauge";
 import { Sparkline } from "./ui/Sparkline";
 
@@ -105,12 +105,15 @@ export function OverviewTab({ data }: { data: DashboardData }) {
   const { report, dots, pathways, indicators, alerts } = data;
   const [popup, setPopup] = useState<StoryItem | null>(null);
   const compositeScore = report?.composite_score ?? 0;
-  const gaugeColor = compositeColor(compositeScore);
+  const isIndeterminate = report?.dashboard_state === "INDETERMINATE";
+  const gaugeColor = isIndeterminate
+    ? { stroke: "#71717a", text: "text-zinc-400", label: "INDETERMINATE" }
+    : compositeColor(compositeScore);
 
   const stories = buildStories(data);
 
   // Dormant dots count
-  const activeDotCount = dots.filter((d) => d.status !== "dormant").length;
+  const activeDotCount = dots.filter((d) => ["activating", "active", "critical"].includes(d.status)).length;
 
   // Alert sparkline — computed from real alert timestamps, derived during render
   const sparkData = useMemo(() => {
@@ -143,7 +146,7 @@ export function OverviewTab({ data }: { data: DashboardData }) {
         <div className="flex flex-col items-center p-4 rounded border border-zinc-800 bg-zinc-900/50">
           <h3 className="text-xs font-mono text-zinc-500 mb-1">COMPOSITE</h3>
           <RadialGauge
-            value={compositeScore}
+            value={isIndeterminate ? 0 : compositeScore}
             max={30}
             size={100}
             color={gaugeColor.stroke}
@@ -155,11 +158,11 @@ export function OverviewTab({ data }: { data: DashboardData }) {
         {/* End State */}
         <div className="flex flex-col items-center justify-center p-4 rounded border border-zinc-800 bg-zinc-900/50">
           <h3 className="text-xs font-mono text-zinc-500 mb-1">END STATE</h3>
-          <span className={`text-2xl font-mono font-bold ${END_STATE_COLORS[report?.end_state ?? "unknown"]?.replace("bg-", "text-") ?? "text-zinc-400"}`}>
-            {(report?.end_state ?? "?").toUpperCase()}
+          <span className={`text-xl font-mono font-bold text-center leading-none ${END_STATE_COLORS[report?.end_state ?? "unknown"]?.replace("bg-", "text-") ?? "text-zinc-400"}`}>
+            {(report?.end_state ?? "?").replace(/_/g, " ").toUpperCase()}
           </span>
-          <span className="text-xs text-zinc-500 mt-1">
-            confidence {report?.confidence ?? "?"}%
+          <span className="text-xs text-zinc-500 mt-2">
+            confidence {report?.confidence ? Math.round(parseFloat(report.confidence) * 100) : "?"}%
           </span>
         </div>
 
@@ -244,6 +247,25 @@ export function OverviewTab({ data }: { data: DashboardData }) {
           })}
         </div>
       </div>
+
+      {/* Category RSS Scores */}
+      {report?.category_rss_scores && Object.keys(report.category_rss_scores).length > 0 && (
+        <div className="p-4 rounded border border-zinc-800 bg-zinc-900/50 mt-4">
+          <h3 className="text-xs font-mono text-zinc-500 mb-3">CATEGORY RSS SCORES</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {Object.entries(report.category_rss_scores).map(([cat, score]) => (
+              <div key={cat} className="flex flex-col p-2 rounded bg-zinc-900/40">
+                <span className="text-[10px] font-mono text-zinc-500 uppercase truncate">
+                  {CATEGORY_NAMES[cat] || cat}
+                </span>
+                <span className="text-sm font-mono text-zinc-300">
+                  {score.toFixed(3)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -387,8 +387,8 @@ Rules:
 - Be specific with numbers and dates from the indicators
 - sources: write a concise paragraph naming the specific indicators, their current values, and data origins that most drove your assessment. Cite news headlines by topic when they influenced the judgment.
 - Only use information present in the data provided
-- TIER RULE: If a dot's tier is 'qualitative' (see DATA TIER above), you MUST output status='unavailable' — do NOT infer from general training data or fabricate assessment signals
-- TIER RULE: If a dot's tier is 'mixed' (see DATA TIER above), ONLY reason about indicators with data_status='live'; mark unavailable indicators as [DATA UNAVAILABLE] in the assessment"""
+- TIER RULE: If a dot's tier is 'qualitative' (see DATA TIER above), evaluate the status and summary using the provided qualitative sources and news. If no qualitative sources or news are available, you MUST output status='unavailable' — do not infer from general training data.
+- TIER RULE: If a dot's tier is 'mixed' (see DATA TIER above), evaluate the status using both the live indicators (data_status='live') and the qualitative sources/news to fill gaps. If an indicator has no data and no qualitative sources are available, mark it as [DATA UNAVAILABLE] in the assessment."""
 
 
 async def analyze_geopolitical(
@@ -509,8 +509,8 @@ Rules:
 - sources: write a concise paragraph naming the specific indicators, their current values, and data origins that most drove your assessment. Cite news headlines by topic when they influenced the judgment.
 - Indicators with numeric values and a status (e.g. "status: normal") have live data — never call them unavailable/N/A.
 - Only use information present in the data provided
-- TIER RULE: If a dot's tier is 'qualitative' (see DATA TIER above), you MUST output status='unavailable' — do NOT infer from general training data or fabricate assessment signals
-- TIER RULE: If a dot's tier is 'mixed' (see DATA TIER above), ONLY reason about indicators with data_status='live'; mark unavailable indicators as [DATA UNAVAILABLE] in the assessment"""
+- TIER RULE: If a dot's tier is 'qualitative' (see DATA TIER above), evaluate the status and summary using the provided qualitative sources and news. If no qualitative sources or news are available, you MUST output status='unavailable' — do not infer from general training data.
+- TIER RULE: If a dot's tier is 'mixed' (see DATA TIER above), evaluate the status using both the live indicators (data_status='live') and the qualitative sources/news to fill gaps. If an indicator has no data and no qualitative sources are available, mark it as [DATA UNAVAILABLE] in the assessment."""
 
 
 async def analyze_food_debt(
@@ -615,8 +615,8 @@ Rules:
 - sources: write a concise paragraph naming the specific indicators, their current values, and data origins that most drove your assessment. Cite news headlines by topic when they influenced the judgment.
 - Indicators with numeric values and a status (e.g. "status: normal") have live data — never call them unavailable/N/A.
 - Only use information present in the data provided
-- TIER RULE: If a dot's tier is 'qualitative' (see DATA TIER above), you MUST output status='unavailable' — do NOT infer from general training data or fabricate assessment signals
-- TIER RULE: If a dot's tier is 'mixed' (see DATA TIER above), ONLY reason about indicators with data_status='live'; mark unavailable indicators as [DATA UNAVAILABLE] in the assessment"""
+- TIER RULE: If a dot's tier is 'qualitative' (see DATA TIER above), evaluate the status and summary using the provided qualitative sources and news. If no qualitative sources or news are available, you MUST output status='unavailable' — do not infer from general training data.
+- TIER RULE: If a dot's tier is 'mixed' (see DATA TIER above), evaluate the status using both the live indicators (data_status='live') and the qualitative sources/news to fill gaps. If an indicator has no data and no qualitative sources are available, mark it as [DATA UNAVAILABLE] in the assessment."""
 
 
 async def analyze_financial_em(
@@ -728,8 +728,8 @@ Rules:
 - Indicators with data_status=unavailable lack real data — they should NOT be treated as "normal/calm"
 - sources: write a concise paragraph naming the specific indicators, their current values, and data origins that most drove your assessment. Cite news headlines by topic when they influenced the judgment.
 - Only use information present in the data provided
-- TIER RULE: If a dot's tier is 'qualitative' (see DATA TIER above), you MUST output status='unavailable' — do NOT infer from general training data or fabricate assessment signals
-- TIER RULE: If a dot's tier is 'mixed' (see DATA TIER above), ONLY reason about indicators with data_status='live'; mark unavailable indicators as [DATA UNAVAILABLE] in the assessment"""
+- TIER RULE: If a dot's tier is 'qualitative' (see DATA TIER above), evaluate the status and summary using the provided qualitative sources and news. If no qualitative sources or news are available, you MUST output status='unavailable' — do not infer from general training data.
+- TIER RULE: If a dot's tier is 'mixed' (see DATA TIER above), evaluate the status using both the live indicators (data_status='live') and the qualitative sources/news to fill gaps. If an indicator has no data and no qualitative sources are available, mark it as [DATA UNAVAILABLE] in the assessment."""
 
 
 async def analyze_china_political(
@@ -826,8 +826,8 @@ Rules:
 - Indicators with data_status=unavailable lack real data — they should NOT be treated as "normal/calm"
 - sources: write a concise paragraph naming the specific indicators, their current values, and data origins that most drove your assessment. Cite news headlines by topic when they influenced the judgment.
 - Only use information present in the data provided
-- TIER RULE: If a dot's tier is 'qualitative' (see DATA TIER above), you MUST output status='unavailable' — do NOT infer from general training data or fabricate assessment signals
-- TIER RULE: If a dot's tier is 'mixed' (see DATA TIER above), ONLY reason about indicators with data_status='live'; mark unavailable indicators as [DATA UNAVAILABLE] in the assessment"""
+- TIER RULE: If a dot's tier is 'qualitative' (see DATA TIER above), evaluate the status and summary using the provided qualitative sources and news. If no qualitative sources or news are available, you MUST output status='unavailable' — do not infer from general training data.
+- TIER RULE: If a dot's tier is 'mixed' (see DATA TIER above), evaluate the status using both the live indicators (data_status='live') and the qualitative sources/news to fill gaps. If an indicator has no data and no qualitative sources are available, mark it as [DATA UNAVAILABLE] in the assessment."""
 
 
 async def analyze_health(

@@ -25,8 +25,9 @@ export const TIER_COLORS: Record<Tier, { bg: string; text: string; border: strin
 
 export const END_STATE_COLORS: Record<string, string> = {
   containment: "bg-emerald-600",
-  fragmented: "bg-amber-500",
-  collapse: "bg-red-600",
+  fragmented_stability: "bg-amber-500",
+  systemic_collapse: "bg-red-600",
+  indeterminate: "bg-zinc-600",
   unknown: "bg-zinc-600",
 };
 
@@ -49,14 +50,12 @@ export function compositeColor(score: number) {
 export const CATEGORY_NAMES: Record<string, string> = {
   geopolitical: "Geopolitical",
   energy: "Energy",
-  food: "Food & Fertilizer",
+  food: "Food & Agriculture",
   financial: "Financial",
-  debt: "Debt & Sovereign",
-  china: "China",
-  political: "Political & Social",
-  "em_currency": "EM Currency & Banking",
-  supply_chain: "Supply Chain & Shipping",
-  health: "Health",
+  currency: "Currency",
+  economic: "Economic",
+  metals: "Metals",
+  supply_chain: "Supply Chain",
 };
 
 /** Pathway color scheme — matched to pathway names in the synthesizer prompt.

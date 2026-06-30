@@ -114,21 +114,30 @@ def _fallback_end_state(
     """Rule-based fallback when LLM fails."""
     score = composite["composite"]
     pathway_d = pathways.get("pathway_d", {}).get("active", False)
+    any_pathway = any(p.get("active", False) for k, p in pathways.items() if k.startswith("pathway_"))
 
     if score >= 25 or (score >= 20 and pathway_d):
         end_state = "systemic_collapse"
-        confidence = 0.85
+        confidence = 0.95
         headline = "CRITICAL: Multiple crisis pathways are active — systemic collapse underway"
-    elif score >= 12:
+    elif score >= 12 and any_pathway:
         end_state = "fragmented_stability"
-        confidence = 0.85
+        confidence = 0.90
         headline = "ELEVATED: Crisis signals detected but system holding in fragmented state"
     else:
         end_state = "containment"
         confidence = 0.85
         headline = "STABLE: Risks contained, no imminent crisis detected"
 
-    recession_prob = min(0.08 + score * 0.028, 0.85)  # ponytail: linear heuristic scaled to 0-30
+    # Strict recession probability ranges per v2 spec
+    if score < 6:
+        recession_prob = max(0.01, 0.15 * (score / 6))
+    elif score < 12:
+        recession_prob = 0.15 + 0.20 * ((score - 6) / 6)
+    elif score < 20:
+        recession_prob = 0.35 + 0.25 * ((score - 12) / 8)
+    else:
+        recession_prob = min(0.99, 0.60 + 0.40 * ((score - 20) / 10))
 
     # Rule-based briefing fallback: plain-language summary from composite data
     if score >= 25:
@@ -208,15 +217,34 @@ if __name__ == "__main__":
         {"pathway_d": {"active": False}},
     )
     assert fb["end_state"] == "containment"
-    assert fb["q3"]["probability"] < 0.3
+    assert fb["q3"]["probability"] < 0.15
     assert "briefing" in fb, "Missing briefing in fallback"
     assert len(fb["briefing"]) > 50, "Briefing too short"
+    assert fb["confidence"] == 0.85
+
+    # Test fragmented stability boundary
+    fb = _fallback_end_state(
+        {"composite": 15, "interpretation": "elevated"},
+        {"pathway_a": {"active": True}},
+    )
+    assert fb["end_state"] == "fragmented_stability"
+    assert 0.35 <= fb["q3"]["probability"] <= 0.60
+    assert fb["confidence"] == 0.90
+    
+    # Test containment due to no pathways (even if score >= 12)
+    fb = _fallback_end_state(
+        {"composite": 15, "interpretation": "elevated"},
+        {"pathway_a": {"active": False}},
+    )
+    assert fb["end_state"] == "containment"
+    assert 0.35 <= fb["q3"]["probability"] <= 0.60  # Probability still scales with score
 
     fb = _fallback_end_state(
         {"composite": 26, "interpretation": "critical"},
         {"pathway_d": {"active": True}},
     )
     assert fb["end_state"] == "systemic_collapse"
-    assert fb["q3"]["probability"] > 0.6
+    assert fb["q3"]["probability"] > 0.60
+    assert fb["confidence"] == 0.95
     assert "collapse" in fb["briefing"].lower(), "Crisis briefing should mention collapse"
     print("end_state fallback OK")

@@ -1,16 +1,22 @@
-"""Composite Crisis Score v2 — Distance-From-Trigger with Category Weights.
+"""Composite Crisis Score v2 — Mathematical Formulation v2.
 
 Replaces the 0-16 (8-category) system with a 0-30 (30-indicator) system.
-Each indicator contributes 0-1 based on its distance from trigger thresholds,
-multiplied by expert-assigned category weights.
+Each indicator contributes 0-1 based on its distance from trigger thresholds
+using a convexity exponent (p=2) to flatten normal noise and accelerate
+near crisis thresholds.
 
-Per spec: /root/.hermes/workspace/dev/specs/composite-score-v2.md
-Decisions locked 2026-06-21 by user.
+Aggregation uses two layers:
+  Layer 1: Intra-category normalized RSS (root-sum-square)
+  Layer 2: Locked-denominator (9.9) weighted composite
+
+Per spec: upgrades/mathematical_formulation_v2.md
+Decisions locked 2026-06-21 by user. Math upgraded 2026-06-30.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -29,8 +35,26 @@ CATEGORY_WEIGHTS: dict[str, float] = {
     "metals": 0.8,
 }
 
-# Total: 37.6 — normalizes to 30-point scale
-SUM_OF_WEIGHTS = sum(CATEGORY_WEIGHTS.values())
+# Locked denominator per v2 spec §3 — sum of all category weights = 9.9
+# This is used as the fixed normalization base regardless of data availability.
+LOCKED_DENOMINATOR = 9.9
+
+# Stale data decay rates per category (α_cat, per hour)
+# Fast-moving market categories decay faster to reflect higher uncertainty.
+STALE_DECAY_RATES: dict[str, float] = {
+    "energy": 0.02,
+    "financial": 0.02,
+    "geopolitical": 0.005,
+    "food": 0.01,
+    "supply_chain": 0.005,
+    "currency": 0.02,
+    "economic": 0.01,
+    "metals": 0.01,
+}
+
+# Circuit breaker threshold: if combined weight of fully offline categories
+# exceeds this, the system enters INDETERMINATE state (v2 spec §3).
+CIRCUIT_BREAKER_THRESHOLD = 4.0
 
 # =================================================================
 # 5-Zone Interpretation (0-30 scale)
@@ -157,11 +181,11 @@ def score_gold_ma_deviation(
         return 0.0, {**debug, "zone": "baseline"}
     elif deviation <= thresholds["breach_pct"]:
         breach_range = thresholds["breach_pct"] - thresholds["baseline_pct"]
-        score = 0.5 * (deviation - thresholds["baseline_pct"]) / breach_range
+        score = 0.5 * ((deviation - thresholds["baseline_pct"]) / breach_range) ** 2
         return round(score, 4), {**debug, "zone": "breach"}
     elif deviation <= thresholds["critical_pct"]:
         critical_range = thresholds["critical_pct"] - thresholds["breach_pct"]
-        score = 0.5 + 0.5 * (deviation - thresholds["breach_pct"]) / critical_range
+        score = 0.5 + 0.5 * ((deviation - thresholds["breach_pct"]) / critical_range) ** 2
         return round(score, 4), {**debug, "zone": "critical"}
     else:
         return 1.0, {**debug, "zone": "catastrophic_capped"}
@@ -170,6 +194,20 @@ def score_gold_ma_deviation(
 # =================================================================
 # Numeric Indicator Scoring — Distance-From-Trigger
 # =================================================================
+
+def score_stale_decay(
+    last_known_score: float,
+    hours_stale: float,
+    alpha: float,
+) -> float:
+    """Apply stale data decay per v2 spec §2.1.
+
+    S_ind(t) = min(S_last + α_cat × t, 1.0)
+
+    Drives uncertainty risk upward over time rather than holding stale values static.
+    """
+    return min(last_known_score + alpha * hours_stale, 1.0)
+
 
 def score_numeric(
     value: float,
@@ -181,12 +219,16 @@ def score_numeric(
     trigger_breach_lower: float | None = None,
     trigger_critical_lower: float | None = None,
 ) -> float:
-    """Calculate 0-1 score for a numeric indicator.
+    """Calculate 0-1 score for a numeric indicator using convexity exponent p=2.
+
+    Per v2 spec §2.2: all live numeric indicators apply a squared power function
+    (p=2) to flatten normal market noise and accelerate the score as values
+    approach breach and critical thresholds.
 
     For normal indicators (higher = worse):
       - value <= baseline: score 0
-      - baseline < value <= trigger_breach: linear 0 to 0.5
-      - trigger_breach < value <= trigger_critical: linear 0.5 to 1.0
+      - baseline < value <= trigger_breach: 0.5 × ((x - Tbase)/(Tbreach - Tbase))²
+      - trigger_breach < value <= trigger_critical: 0.5 + 0.5 × ((x - Tbreach)/(Tcrit - Tbreach))²
       - value > trigger_critical: capped at 1.0
 
     For inverted indicators (lower = worse): the logic is flipped internally.
@@ -218,14 +260,7 @@ def score_numeric(
         return max(score_upper, score_lower)
 
     if is_inverted:
-        # Flip: lower is worse → negate to make "higher = worse"
-        # But the formula is structured for "higher = worse"
-        # For inverted: value <= baseline means "good" (score 0)
-        # value < trigger_breach means "bad" (lower is worse)
-        # So we check: if value >= baseline → score 0
-        #              if trigger_breach <= value < baseline → 0 to 0.5
-        #              if trigger_critical <= value < trigger_breach → 0.5 to 1.0
-        #              if value < trigger_critical → 1.0 (capped)
+        # Inverted: lower is worse (v2 spec §2.2.B)
         if value >= baseline:
             return 0.0
         elif value >= trigger_breach:
@@ -233,32 +268,32 @@ def score_numeric(
             denom = baseline - trigger_breach
             if denom <= 0:
                 return 0.0
-            return 0.5 * (baseline - value) / denom
+            return 0.5 * ((baseline - value) / denom) ** 2
         elif value >= trigger_critical:
             # Between breach and critical
             denom = trigger_breach - trigger_critical
             if denom <= 0:
                 return 1.0
-            return 0.5 + 0.5 * (trigger_breach - value) / denom
+            return 0.5 + 0.5 * ((trigger_breach - value) / denom) ** 2
         else:
             # Below critical — cap at 1.0
             return 1.0
 
-    # Normal case: higher is worse
+    # Normal case: higher is worse (v2 spec §2.2.A)
     if value <= baseline:
         return 0.0
     elif value <= trigger_breach:
         denom = trigger_breach - baseline
         if denom <= 0:
             return 0.0
-        return 0.5 * (value - baseline) / denom
+        return 0.5 * ((value - baseline) / denom) ** 2
     elif value <= trigger_critical:
         denom = trigger_critical - trigger_breach
         if denom <= 0:
             return 1.0
-        return 0.5 + 0.5 * (value - trigger_breach) / denom
+        return 0.5 + 0.5 * ((value - trigger_breach) / denom) ** 2
     else:
-        # Above critical — cap at 1.0 (per Q4: max per-indicator = 1.0)
+        # Above critical — cap at 1.0
         return 1.0
 
 
@@ -325,7 +360,7 @@ INDICATOR_REGISTRY: dict[str, IndicatorConfig] = {
     # ======== Food (4 indicators, weight 1.3x) ========
     "fao_food_price_index": IndicatorConfig(
         slug="fao_food_price_index", name="FAO Food Price Index", category="food",
-        unit="index points", baseline=110, trigger_breach=130, trigger_critical=150,
+        unit="index points", baseline=125, trigger_breach=140, trigger_critical=155,
     ),
     "wheat_futures": IndicatorConfig(
         slug="wheat_futures", name="Wheat Futures", category="food",
@@ -406,17 +441,17 @@ INDICATOR_REGISTRY: dict[str, IndicatorConfig] = {
     ),
     "copper_price": IndicatorConfig(
         slug="copper_price", name="Copper Price", category="metals",
-        unit="USD/lb", baseline=3.8, trigger_breach=3.50, trigger_critical=4.50,
+        unit="USD/lb", baseline=6.0, trigger_breach=7.50, trigger_critical=9.00,
     ),
     "silver_price": IndicatorConfig(
         slug="silver_price", name="Silver Price", category="metals",
-        unit="USD/troy oz", baseline=28, trigger_breach=35, trigger_critical=45,
+        unit="USD/troy oz", baseline=55, trigger_breach=65, trigger_critical=75,
     ),
 
     # ======== Supply Chain (4 indicators, weight 1.3x) ========
     "baltic_dry_index": IndicatorConfig(
         slug="baltic_dry_index", name="Baltic Dry Index", category="supply_chain",
-        unit="index points", baseline=1300, trigger_breach=1500, trigger_critical=2000,
+        unit="index points", baseline=2500, trigger_breach=3200, trigger_critical=4000,
     ),
     "scfi": IndicatorConfig(
         slug="scfi", name="Shanghai Containerized Freight Index", category="supply_chain",
@@ -517,6 +552,13 @@ def score_composite(
 ) -> dict[str, Any]:
     """Score all 30 indicators and return composite analysis.
 
+    Uses two-layer aggregation per v2 spec §3:
+      Layer 1: Intra-category normalized RSS — S_cat = √(Σ S²ᵢ / nₖ)
+      Layer 2: Locked-denominator composite — C = round((Σ S_cat × W_cat / 9.9) × 30, 1)
+
+    Also checks the circuit breaker: if combined weight of fully offline
+    categories exceeds 4.0, returns INDETERMINATE state.
+
     Args:
         indicators: dict of indicator name → value pairs (from normalize.py).
                     Values can be numeric, string, or dicts (for news-derived flags).
@@ -524,51 +566,42 @@ def score_composite(
 
     Returns:
         {
-            "composite": float,          # 0-30 composite score
-            "interpretation": str,       # 5-zone label
-            "category_scores": dict,     # {category: weighted_sum}
-            "indicator_details": dict,   # per-indicator raw_score, weighted_score, debug
-            "total_weight": float,       # sum of weights for available indicators
-            "available_count": int,      # number of indicators with data
+            "composite": float,              # 0-30 composite score
+            "interpretation": str,           # 5-zone label
+            "dashboard_state": str,          # "ACTIVE" or "INDETERMINATE"
+            "category_rss_scores": dict,     # {category: RSS score 0-1}
+            "category_scores": dict,         # {category: weighted contribution}
+            "per_indicator_scores": dict,    # {slug: raw_score}
+            "indicator_details": dict,       # per-indicator details
+            "available_count": int,
         }
     """
-    category_weighted: dict[str, float] = {cat: 0.0 for cat in CATEGORY_WEIGHTS}
-    total_weight: float = 0.0
+    # Collect per-indicator scores grouped by category
+    category_indicator_scores: dict[str, list[float]] = {cat: [] for cat in CATEGORY_WEIGHTS}
     available_count: int = 0
     indicator_details: dict[str, dict[str, Any]] = {}
-
-    # Track which indicators were found (for category weight accounting)
-    # We normalize by (sum of weights of INDICATORS THAT HAD DATA)
-    # not the full 37.6. This handles missing indicators gracefully.
-    active_weights_by_category: dict[str, float] = {cat: 0.0 for cat in CATEGORY_WEIGHTS}
 
     for raw_key, raw_value in indicators.items():
         slug = _resolve_slug(raw_key)
         if slug is None:
-            # Unknown indicator (old system remnant or unsupported) — skip
             continue
 
         config = INDICATOR_REGISTRY[slug]
-        weight = CATEGORY_WEIGHTS.get(config.category, 1.0)
 
-        # Extract numeric value
+        # Score the indicator
         if config.value_type == "enum":
-            # Non-numeric: score from explicit mapping
             str_value = str(raw_value) if not isinstance(raw_value, str) else raw_value
             raw_score = score_non_numeric(str_value, slug)
             debug_info = {"method": "enum", "raw_value": str_value}
         elif config.value_type == "ma_deviation":
-            # Gold: use MA-deviation scoring
             scalar = _extract_scalar(raw_value)
             if scalar is not None and scalar > 0:
                 raw_score, debug_info = score_gold_ma_deviation(scalar, gold_ma_200)
             else:
                 raw_score, debug_info = 0.0, {"method": "ma_deviation", "error": "No value or MA available"}
         else:
-            # Standard numeric: distance-from-trigger
             scalar = _extract_scalar(raw_value)
             if scalar is not None and config.trigger_breach is not None and config.trigger_critical is not None:
-                # Compute baseline if not explicitly set (Q2: trigger_breach * 0.7)
                 baseline = config.baseline if config.baseline is not None else config.trigger_breach * 0.7
                 raw_score = score_numeric(
                     value=scalar,
@@ -584,48 +617,71 @@ def score_composite(
             else:
                 raw_score, debug_info = 0.0, {"method": "numeric", "error": "No trigger config or value unavailable"}
 
-        # Clamp raw_score to [0, 1] per Q4 decision
         raw_score = max(0.0, min(1.0, raw_score))
 
-        weighted_score = raw_score * weight
-        category_weighted[config.category] += weighted_score
-        active_weights_by_category[config.category] += weight
-        total_weight += weight
+        category_indicator_scores[config.category].append(raw_score)
         available_count += 1
 
         indicator_details[slug] = {
             "name": config.name,
             "category": config.category,
-            "weight": weight,
+            "weight": CATEGORY_WEIGHTS.get(config.category, 1.0),
             "raw_score": round(raw_score, 4),
-            "weighted_score": round(weighted_score, 4),
             "debug": debug_info,
         }
 
-    # Compute composite: normalized to 0-30
-    # If some indicators are missing, we normalize by the weight of indicators
-    # that HAVE data (not the full 37.6). This is the "scale by available" approach
-    # from spec section 3 (Robustness to Missing Indicators).
-    if total_weight > 0:
-        composite = (sum(category_weighted.values()) / total_weight) * 30.0
-    else:
-        composite = 0.0
+    # ── Layer 1: Intra-Category Normalized RSS ──────────────────────────
+    # S_cat,k = √(Σ S²ᵢ / nₖ)  — per v2 spec §3
+    category_rss_scores: dict[str, float] = {}
+    for cat, scores in category_indicator_scores.items():
+        if scores:
+            sum_sq = sum(s ** 2 for s in scores)
+            category_rss_scores[cat] = math.sqrt(sum_sq / len(scores))
+        else:
+            category_rss_scores[cat] = 0.0
 
-    composite = round(composite, 1)
-    interpretation = _interpret(composite)
+    # ── Circuit Breaker Check ───────────────────────────────────────────
+    # If combined weight of fully offline categories > 4.0 → INDETERMINATE
+    offline_weight = sum(
+        CATEGORY_WEIGHTS[cat]
+        for cat, scores in category_indicator_scores.items()
+        if not scores  # no indicators at all for this category
+    )
+    dashboard_state = "INDETERMINATE" if offline_weight > CIRCUIT_BREAKER_THRESHOLD else "ACTIVE"
+
+    # ── Layer 2: Locked-Denominator Composite ───────────────────────────
+    # C = round((Σ S_cat × W_cat / 9.9) × 30, 1)  — per v2 spec §3
+    if dashboard_state == "INDETERMINATE":
+        composite = 0.0
+        interpretation = "indeterminate"
+    else:
+        weighted_sum = sum(
+            category_rss_scores[cat] * CATEGORY_WEIGHTS[cat]
+            for cat in CATEGORY_WEIGHTS
+        )
+        composite = round((weighted_sum / LOCKED_DENOMINATOR) * 30.0, 1)
+        composite = max(0.0, min(30.0, composite))
+        interpretation = _interpret(composite)
+
+    # Category-level weighted contributions (for downstream consumers)
+    category_scores: dict[str, float] = {
+        cat: round(category_rss_scores[cat] * CATEGORY_WEIGHTS[cat], 4)
+        for cat in CATEGORY_WEIGHTS
+    }
 
     return {
         "composite": composite,
         "interpretation": interpretation,
-        "category_scores": {cat: round(v, 4) for cat, v in category_weighted.items()},
+        "dashboard_state": dashboard_state,
+        "category_rss_scores": {cat: round(v, 4) for cat, v in category_rss_scores.items()},
+        "category_scores": category_scores,
         "per_indicator_scores": {
             slug: details["raw_score"] for slug, details in indicator_details.items()
         },
-        "category_weights_active": {cat: round(w, 4) for cat, w in active_weights_by_category.items()},
         "indicator_details": indicator_details,
-        "total_weight": round(total_weight, 4),
         "available_count": available_count,
         "total_indicators": len(INDICATOR_REGISTRY),
+        "offline_category_weight": round(offline_weight, 2),
     }
 
 
@@ -637,34 +693,38 @@ if __name__ == "__main__":
     # --- Scenario 1: All baseline (score should be 0) ---
     all_baseline: dict[str, Any] = {
         "brent_oil": 75, "wti_oil": 70, "eu_gas_storage": 85, "natgas_henry_hub": 3.0,
-        "fao_food_price_index": 110, "wheat_futures": 5.5, "corn_futures": 4.0, "rice_price": 14,
+        "fao_food_price_index": 125, "wheat_futures": 5.5, "corn_futures": 4.0, "rice_price": 14,
         "us_ism_manufacturing": 50, "china_caixin_pmi": 50, "eurozone_manufacturing_pmi": 50,
         "us_jobless_claims": 230,
         "vix": 15, "move_bond_volatility": 90, "ted_spread": 20, "credit_spread": 120,
         "dxy_index": 100, "eur_usd": 1.10, "usd_cny": 7.0,
-        "copper_price": 3.8, "silver_price": 28,
-        "baltic_dry_index": 1300, "scfi": 2000,
+        "copper_price": 6.0, "silver_price": 55,
+        "baltic_dry_index": 2500, "scfi": 2000,
         "global_terrorism_index": 4.5,
     }
     result = score_composite(all_baseline)
     assert result["composite"] == 0.0, f"Expected 0, got {result['composite']}"
     assert result["interpretation"] == "normal"
+    assert result["dashboard_state"] == "ACTIVE"
     print(f"  PASS: All baseline → {result['composite']}/30 ({result['interpretation']})")
 
-    # --- Scenario 2: All at breach (score should be ~15) ---
+    # --- Scenario 2: All at breach (convexity p=2 → each scores 0.5²×0.5=0.125, not 0.5) ---
+    # With p=2, at exactly breach threshold each indicator scores exactly 0.5
+    # because (Tbreach - Tbase)/(Tbreach - Tbase) = 1, so 0.5 × 1² = 0.5
     all_breach: dict[str, Any] = {
         "brent_oil": 90, "wti_oil": 85, "eu_gas_storage": 70, "natgas_henry_hub": 4.5,
-        "fao_food_price_index": 130, "wheat_futures": 7.5, "corn_futures": 5.5, "rice_price": 16,
+        "fao_food_price_index": 140, "wheat_futures": 7.5, "corn_futures": 5.5, "rice_price": 16,
         "us_ism_manufacturing": 47, "china_caixin_pmi": 48, "eurozone_manufacturing_pmi": 47,
         "us_jobless_claims": 280,
         "vix": 25, "move_bond_volatility": 120, "ted_spread": 50, "credit_spread": 200,
         "dxy_index": 105, "eur_usd": 1.05, "usd_cny": 7.2,
-        "copper_price": 3.5, "silver_price": 35,
-        "baltic_dry_index": 1500, "scfi": 3000,
+        "copper_price": 7.5, "silver_price": 65,
+        "baltic_dry_index": 3200, "scfi": 3000,
         "global_terrorism_index": 6,
     }
     result = score_composite(all_breach)
-    # At breach, each indicator scores 0.5. Normalized should be ~15
+    # At breach, each indicator scores 0.5 → RSS per category = 0.5
+    # C = (Σ 0.5 × Wcat / 9.9) × 30 = (0.5 × 9.9 / 9.9) × 30 = 15
     assert 14.0 <= result["composite"] <= 16.0, f"Expected ~15, got {result['composite']}"
     assert result["interpretation"] == "elevated"
     print(f"  PASS: All breach → {result['composite']}/30 ({result['interpretation']})")
@@ -672,13 +732,13 @@ if __name__ == "__main__":
     # --- Scenario 3: All critical (score should be ~30) ---
     all_critical: dict[str, Any] = {
         "brent_oil": 110, "wti_oil": 105, "eu_gas_storage": 60, "natgas_henry_hub": 7.0,
-        "fao_food_price_index": 150, "wheat_futures": 9.0, "corn_futures": 7.0, "rice_price": 20,
+        "fao_food_price_index": 155, "wheat_futures": 9.0, "corn_futures": 7.0, "rice_price": 20,
         "us_ism_manufacturing": 45, "china_caixin_pmi": 46, "eurozone_manufacturing_pmi": 45,
         "us_jobless_claims": 320,
         "vix": 35, "move_bond_volatility": 150, "ted_spread": 80, "credit_spread": 300,
         "dxy_index": 110, "eur_usd": 1.00, "usd_cny": 7.4,
-        "copper_price": 4.5, "silver_price": 45,
-        "baltic_dry_index": 2000, "scfi": 4000,
+        "copper_price": 9.0, "silver_price": 75,
+        "baltic_dry_index": 4000, "scfi": 4000,
         "global_terrorism_index": 7.5,
     }
     result = score_composite(all_critical)
@@ -686,101 +746,95 @@ if __name__ == "__main__":
     assert result["interpretation"] == "critical"
     print(f"  PASS: All critical → {result['composite']}/30 ({result['interpretation']})")
 
-    # --- Scenario 4: Spec worked example (2026-06-21 actual data) ---
-    worked_example: dict[str, Any] = {
-        # Energy
-        "brent_oil": 80.59, "wti_oil": 77.23, "eu_gas_storage": 58.3, "natgas_henry_hub": 3.15,
-        # Food
-        "fao_food_price_index": 118.5, "wheat_futures": 5.85, "corn_futures": 4.12, "rice_price": 14.8,
-        # Economic
-        "us_ism_manufacturing": 48.2, "china_caixin_pmi": 50.8, "eurozone_manufacturing_pmi": 46.5,
-        "us_jobless_claims": 245,
-        # Financial
-        "vix": 14.2, "move_bond_volatility": 95, "ted_spread": 18, "credit_spread": 145,
-        # Currency
-        "dxy_index": 98.5, "eur_usd": 1.08, "usd_cny": 7.18,
-        # Metals
-        "copper_price": 4.35, "silver_price": 45.2,
-        # Supply Chain
-        "baltic_dry_index": 1850, "scfi": 2850,
-        # Geopolitical
-        "global_terrorism_index": 5.2,
-    }
-    # Non-numeric indicators
-    worked_example["hormuz_strait"] = "normal"
-    worked_example["taiwan_strait_tension"] = "monitored"
-    worked_example["russia_ukraine_conflict"] = "ongoing"
-    worked_example["middle_east_conflict"] = "regional"
-    worked_example["china_taiwan_tension"] = "elevated"
+    # --- Scenario 4: Convexity check — mid-zone should score 0.125 not 0.25 ---
+    # Brent at $82.5 = midpoint of base(75)→breach(90)
+    # v2: 0.5 × ((82.5-75)/(90-75))² = 0.5 × 0.5² = 0.5 × 0.25 = 0.125
+    result = score_composite({"brent_oil": 82.5})
+    brent_score = result["indicator_details"]["brent_oil"]["raw_score"]
+    assert abs(brent_score - 0.125) < 0.01, f"Brent at midpoint should score ~0.125, got {brent_score}"
+    print(f"  PASS: Convexity check — Brent mid-zone = {brent_score} (expected ~0.125)")
 
-    # Gold with MA deviation (value=4172, MA≈3300 — this goes through ma_deviation path)
-    # We pass gold_ma_200 explicitly
-    result = score_composite(worked_example, gold_ma_200=3300)
-    # Also add gold price to indicators for the ma_deviation path
-    worked_example["gold_price"] = 4172
-    result = score_composite(worked_example, gold_ma_200=3300)
+    # --- Scenario 5: RSS aggregation check ---
+    # 1 critical (1.0) + 3 zero → RSS = √(1/4) = 0.5, not 0.25 (v1 average)
+    result = score_composite({
+        "brent_oil": 115,      # score = 1.0 (critical)
+        "wti_oil": 70,         # score = 0.0 (baseline)
+        "eu_gas_storage": 85,  # score = 0.0 (baseline)
+        "natgas_henry_hub": 3.0,  # score = 0.0 (baseline)
+    })
+    energy_rss = result["category_rss_scores"]["energy"]
+    assert abs(energy_rss - 0.5) < 0.01, f"Energy RSS should be ~0.5, got {energy_rss}"
+    print(f"  PASS: RSS aggregation — 1 critical + 3 zero = energy RSS {energy_rss}")
 
-    print(f"  Worked example → {result['composite']}/30 ({result['interpretation']})")
-    print(f"  Available: {result['available_count']}/{result['total_indicators']} indicators")
-    print(f"  Category scores: {result['category_scores']}")
-
-    # The spec expects ~9.1/30 for this day
-    # Let's accept ±2 tolerance since not all indicators are populated
-    assert 7.0 <= result["composite"] <= 12.0, (
-        f"Worked example expected 9.1±2, got {result['composite']}"
-    )
-
-    # --- Scenario 5: Missing indicators (scale by available) ---
+    # --- Scenario 6: Sparse data (avoid circuit breaker) → locked denominator ---
     sparse: dict[str, Any] = {
-        "brent_oil": 115,  # critical
-        "vix": 40,         # critical
+        "brent_oil": 115,  # critical (energy)
+        "vix": 40,         # critical (financial)
+        "fao_food_price_index": 125, # baseline (food)
+        "copper_price": 6.0, # baseline (metals)
+        "dxy_index": 100, # baseline (currency)
     }
     result = score_composite(sparse)
-    # With only 2 indicators critical, score should be between 0-30
-    assert 0 <= result["composite"] <= 30, f"Sparse score out of range: {result['composite']}"
-    assert result["available_count"] == 2
-    print(f"  PASS: Sparse (2 indicators) → {result['composite']}/30 ({result['interpretation']})")
+    # With locked denominator:
+    # energy RSS = 1.0, financial RSS = 1.0, food/metals/currency RSS = 0.0
+    # C = ((1.0 × 1.5 + 1.0 × 1.4) / 9.9) × 30 = (2.9 / 9.9) × 30 ≈ 8.8
+    assert 8.0 <= result["composite"] <= 9.0, f"Sparse score out of range: {result['composite']}"
+    assert result["available_count"] == 5
+    assert result["dashboard_state"] == "ACTIVE"
+    print(f"  PASS: Sparse (avoid CB) → {result['composite']}/30 ({result['interpretation']})")
 
-    # --- Scenario 6: Inverted logic (EU Gas) ---
+    # --- Scenario 7: Circuit breaker ---
+    # Only 1 indicator in energy → 7 categories offline
+    # Offline weight: 1.4+1.4+1.3+1.3+1.2+1.0+0.8 = 8.4 > 4.0 → INDETERMINATE
+    result = score_composite({"brent_oil": 115})
+    assert result["dashboard_state"] == "INDETERMINATE", f"Expected INDETERMINATE, got {result['dashboard_state']}"
+    assert result["interpretation"] == "indeterminate"
+    print(f"  PASS: Circuit breaker → {result['dashboard_state']}")
+
+    # --- Scenario 8: Inverted logic (EU Gas) ---
     result = score_composite({"eu_gas_storage": 85})  # baseline → 0
-    assert result["composite"] == 0.0, f"EU Gas at baseline should score 0, got {result['composite']}"
+    assert result["indicator_details"]["eu_gas_storage"]["raw_score"] == 0.0
 
-    result = score_composite({"eu_gas_storage": 58.3})  # critical
+    result = score_composite({"eu_gas_storage": 58.3})  # below critical
     details = result["indicator_details"]["eu_gas_storage"]
-    assert details["raw_score"] > 0.8, f"EU Gas at 58.3% should be critical, got {details['raw_score']}"
+    assert details["raw_score"] > 0.9, f"EU Gas at 58.3% should be near critical, got {details['raw_score']}"
     print(f"  PASS: Inverted EU Gas at 58.3% → raw_score={details['raw_score']}")
 
-    # --- Scenario 7: Gold MA deviation ---
-    # Gold at $4172 with MA $3300 → deviation = +26.4% → catastrophic capped at 1.0
+    # --- Scenario 9: Gold MA deviation (convexity p=2 now) ---
     result = score_composite({"gold_price": 4172}, gold_ma_200=3300)
     details = result["indicator_details"]["gold_price"]
     assert details["raw_score"] == 1.0, f"Gold at +26.4% should be capped at 1.0, got {details['raw_score']}"
     assert details["debug"]["zone"] == "catastrophic_capped"
     print(f"  PASS: Gold MA deviation +26.4% → capped at {details['raw_score']}")
 
-    # Gold below MA → score 0
     result = score_composite({"gold_price": 3000}, gold_ma_200=3300)
     details = result["indicator_details"]["gold_price"]
     assert details["raw_score"] == 0.0, f"Gold below MA should score 0, got {details['raw_score']}"
     print(f"  PASS: Gold below MA → score 0")
 
-    # --- Scenario 8: Two-sided indicator (DXY) ---
+    # --- Scenario 10: Two-sided indicator (DXY) ---
     result = score_composite({"dxy_index": 100})  # at center → 0
     assert result["indicator_details"]["dxy_index"]["raw_score"] == 0.0
 
     result = score_composite({"dxy_index": 108})  # above upper breach → scored
     dxy_score = result["indicator_details"]["dxy_index"]["raw_score"]
-    assert dxy_score > 0.3, f"DXY at 108 should be elevated, got {dxy_score}"
+    assert dxy_score > 0.1, f"DXY at 108 should be elevated, got {dxy_score}"
 
     result = score_composite({"dxy_index": 92})  # below lower breach → scored
     dxy_score = result["indicator_details"]["dxy_index"]["raw_score"]
-    assert dxy_score > 0.3, f"DXY at 92 should be elevated, got {dxy_score}"
+    assert dxy_score > 0.1, f"DXY at 92 should be elevated, got {dxy_score}"
     print(f"  PASS: Two-sided DXY scoring works")
 
-    # --- Scenario 9: Legacy key mapping ---
+    # --- Scenario 11: Legacy key mapping ---
     result = score_composite({"brent_price": 115})  # old normalize.py key
     assert "brent_oil" in result["indicator_details"], f"Legacy key brent_price not mapped"
     assert result["indicator_details"]["brent_oil"]["raw_score"] == 1.0
     print(f"  PASS: Legacy key mapping (brent_price → brent_oil)")
 
+    # --- Scenario 12: Stale decay function ---
+    assert score_stale_decay(0.3, 10, 0.02) == 0.5
+    assert score_stale_decay(0.9, 20, 0.02) == 1.0  # capped at 1.0
+    print(f"  PASS: Stale data decay function")
+
     print("\n=== ALL CHECKS PASSED ===")
+

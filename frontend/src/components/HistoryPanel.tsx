@@ -111,10 +111,11 @@ export function HistoryPanel({ data: liveData }: { data: DashboardData }) {
               <span className="text-zinc-600 w-16 md:w-20 truncate">{r.date}</span>
               <span className={`px-1.5 py-0.5 rounded ${
                 r.end_state === "containment" ? "bg-emerald-900/40 text-emerald-400" :
-                r.end_state === "fragmented" ? "bg-amber-900/40 text-amber-400" :
+                (r.end_state === "fragmented" || r.end_state === "fragmented_stability") ? "bg-amber-900/40 text-amber-400" :
+                (r.end_state === "indeterminate") ? "bg-zinc-900/40 text-zinc-400" :
                 "bg-red-900/40 text-red-400"
               }`}>
-                {r.end_state}
+                {r.end_state?.replace(/_/g, " ")}
               </span>
               <span className="text-zinc-500 ml-auto">Score: {r.composite_score}</span>
             </div>

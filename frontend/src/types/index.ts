@@ -4,6 +4,9 @@ export type DotStatus = "dormant" | "activating" | "active" | "critical" | "unav
 /** Data completeness tier returned by the tier_classifier pipeline node. */
 export type Tier = "live" | "mixed" | "qualitative";
 
+// ── Dashboard state ───────────────────────────────────────────────────────
+export type DashboardState = "ACTIVE" | "INDETERMINATE";
+
 // ── Fetcher health ────────────────────────────────────────────────────────
 /** One row from GET /api/system/health → fetchers array. */
 export interface FetcherHealthItem {
@@ -128,6 +131,8 @@ export interface Report {
   confidence: string;
   composite_score: number;
   briefing?: string;
+  dashboard_state?: DashboardState;
+  category_rss_scores?: Record<string, number>;
   created_at: string;
 }
 

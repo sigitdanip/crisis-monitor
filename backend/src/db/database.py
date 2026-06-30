@@ -104,6 +104,8 @@ _CREATE_TABLES = """
         composite_score INTEGER DEFAULT 0,
         briefing TEXT DEFAULT '',
         trigger_source TEXT DEFAULT '',
+        dashboard_state TEXT DEFAULT 'ACTIVE',
+        category_rss_scores TEXT DEFAULT '{}',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS alerts (
@@ -155,6 +157,8 @@ _MIGRATIONS: list[tuple[int, str]] = [
     (13, "ALTER TABLE pipeline_runs ADD COLUMN trigger_source TEXT DEFAULT ''"),
     (14, "ALTER TABLE pipeline_runs ADD COLUMN overall_tier TEXT DEFAULT 'live'"),
     (15, "ALTER TABLE indicator_history ADD COLUMN data_status TEXT DEFAULT 'live'"),
+    (16, "ALTER TABLE daily_reports ADD COLUMN dashboard_state TEXT DEFAULT 'ACTIVE'"),
+    (17, "ALTER TABLE daily_reports ADD COLUMN category_rss_scores TEXT DEFAULT '{}'"),
 ]
 
 

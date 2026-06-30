@@ -174,7 +174,19 @@ export default function Home() {
       <Header
         compositeScore={data.report?.composite_score ?? 0}
         lastUpdated={lastUpdated}
+        dashboardState={data.report?.dashboard_state}
       />
+
+      {data.report?.dashboard_state === "INDETERMINATE" && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-yellow-950/40 border-b border-yellow-900/50 shrink-0">
+          <span className="text-[10px] font-mono text-yellow-500 uppercase tracking-wider font-bold md:text-xs">
+            ⚠️ CIRCUIT BREAKER ACTIVE
+          </span>
+          <span className="text-[10px] font-mono text-yellow-500/80 md:text-xs">
+            — Insufficient live data to compute valid composite score.
+          </span>
+        </div>
+      )}
 
       {/* Stale data indicator — shown when we have cached data but a fetch
           is still in flight. */}

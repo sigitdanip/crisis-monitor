@@ -115,12 +115,21 @@ def extract_json(text: str) -> dict:
 
 async def call_llm_with_retry(
     prompt: str,
-    max_attempts: int = 2,
+    max_attempts: int = 3,
     timeout: int = 60,
-    base_delay: float = 1.0,
+    base_delay: float = 3.0,
     temperature: float = 0.3,
 ) -> tuple[dict[str, Any], int]:
-    """Call the LLM with retry on transient failures."""
+    """Call the LLM with retry on transient failures.
+
+    Retry strategy (exponential backoff):
+      attempt 1 fails → wait base_delay * 1 = 3s
+      attempt 2 fails → wait base_delay * 2 = 6s
+      attempt 3 fails → raise
+
+    Combined with the staggered semaphore in graph.py this eliminates
+    HTTP 429 rate-limit fallbacks from provider bursts.
+    """
     last_exception: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:

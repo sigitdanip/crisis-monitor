@@ -138,7 +138,7 @@ export function ReportPanel({ data }: { data: DashboardData }) {
           <div>
             <span className="text-[10px] md:text-xs font-mono text-zinc-500">END STATE ASSESSMENT</span>
             <h2 className={`text-lg md:text-xl font-mono font-bold mt-1 ${endColor.replace("bg-", "text-")}`}>
-              {endState.toUpperCase()}
+              {(endState ?? "?").replace(/_/g, " ").toUpperCase()}
             </h2>
             <p className="text-[10px] md:text-xs text-zinc-400 mt-1">{report.synthesis?.slice(0, 120)}...</p>
           </div>

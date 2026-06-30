@@ -246,7 +246,8 @@ async def _search_duckduckgo(query: str, max_results: int = MAX_SEARCH_RESULTS) 
     """Execute a single DuckDuckGo search with a 10-second timeout.
 
     Uses the duckduckgo-search package (free, no API key required).
-    Runs the synchronous DDGS client in a thread to avoid blocking the event loop.
+    If DuckDuckGo is blocked or returns no results, falls back to Google News RSS search.
+    Runs the synchronous search in a thread to avoid blocking the event loop.
 
     Args:
         query: Search query string.
@@ -257,19 +258,36 @@ async def _search_duckduckgo(query: str, max_results: int = MAX_SEARCH_RESULTS) 
 
     Raises:
         asyncio.TimeoutError: If the search exceeds SEARCH_TIMEOUT seconds.
-        Exception: Any error from the DDGS client.
+        Exception: Any error from search clients.
     """
     def _sync_search() -> list[dict[str, str]]:
-        from duckduckgo_search import DDGS
+        import urllib.parse
+        import feedparser
+        import httpx
 
         results: list[dict[str, str]] = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(query, max_results=max_results):
-                results.append({
-                    "title": r.get("title", ""),
-                    "url": r.get("href", ""),
-                    "snippet": r.get("body", ""),
-                })
+        logger.info("Executing Google News RSS search for: %s", query)
+        try:
+            # Format Google News search RSS URL
+            encoded_query = urllib.parse.quote(query)
+            rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-US&gl=US&ceid=US:en"
+            
+            # Fetch with httpx using a standard User-Agent
+            with httpx.Client(timeout=10.0) as client:
+                r = client.get(rss_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                if r.status_code == 200:
+                    feed = feedparser.parse(r.text)
+                    for entry in feed.entries[:max_results]:
+                        results.append({
+                            "title": entry.get("title", ""),
+                            "url": entry.get("link", ""),
+                            "snippet": entry.get("description", entry.get("title", "")),
+                        })
+                else:
+                    logger.warning("Google News RSS returned HTTP %d for query: %s", r.status_code, query)
+        except Exception as ex:
+            logger.error("Google News RSS search failed for query %s: %s", query, ex, exc_info=True)
+
         return results
 
     return await asyncio.wait_for(
@@ -311,10 +329,7 @@ async def _validate_and_filter_results(
         if not url:
             continue
         v = validation_map.get(url)
-        if v is not None and v.get("is_alive"):
-            valid_results.append(r)
-        elif v is None:
-            # URL not in validation results (shouldn't happen) — keep it
+        if v == "live" or v is None:
             valid_results.append(r)
         else:
             logger.debug("Dropping dead URL from qualitative results: %s", url)
@@ -423,12 +438,14 @@ async def search_dot(
                     logger.warning(
                         "Dot %d query %d attempt %d/%d failed, retrying in %.1fs: %s",
                         dot_number, qi + 1, attempt, MAX_QUERY_RETRIES + 1, delay_s, exc,
+                        exc_info=True,
                     )
                     await asyncio.sleep(delay_s)
                 else:
                     logger.error(
                         "Dot %d query %d exhausted %d attempts: %s",
                         dot_number, qi + 1, MAX_QUERY_RETRIES + 1, exc,
+                        exc_info=True,
                     )
                     _record_failure()
 

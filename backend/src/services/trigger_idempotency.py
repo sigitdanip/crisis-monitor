@@ -15,7 +15,7 @@ from src.db.database import get_db
 
 logger = logging.getLogger("crisis_monitor.idempotency")
 
-IDEMPOTENCY_WINDOW_MINUTES = 5
+IDEMPOTENCY_WINDOW_MINUTES = 0
 
 
 def find_recent_report(trigger_source: str) -> dict | None:

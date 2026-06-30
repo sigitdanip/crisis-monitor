@@ -32,7 +32,7 @@ def _fetch_one(name: str, info: dict[str, Any]) -> dict[str, Any] | None:
     """Fetch a single indicator via yfinance. Returns None on failure."""
     try:
         tk = yf.Ticker(info["ticker"])
-        data = tk.history(period="2d")
+        data = tk.history(period="5d")
         if data.empty:
             logger.warning("yfinance returned no data for %s (%s)", name, info["ticker"])
             return None

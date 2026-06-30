@@ -50,9 +50,9 @@ indicators:
     category: food
     value_type: numeric
     unit: index_points
-    baseline: 110
-    trigger_breach: 130
-    trigger_critical: 150
+    baseline: 125
+    trigger_breach: 140
+    trigger_critical: 155
     is_inverted: false
     is_two_sided: false
 
@@ -219,9 +219,9 @@ indicators:
     category: metals
     value_type: numeric
     unit: usd_per_lb
-    baseline: 3.8
-    trigger_breach: 3.50
-    trigger_critical: 4.50
+    baseline: 6.0
+    trigger_breach: 7.50
+    trigger_critical: 9.00
     is_inverted: false
     is_two_sided: false
 
@@ -229,9 +229,9 @@ indicators:
     category: metals
     value_type: numeric
     unit: usd_per_oz
-    baseline: 28
-    trigger_breach: 35
-    trigger_critical: 45
+    baseline: 55
+    trigger_breach: 65
+    trigger_critical: 75
     is_inverted: false
     is_two_sided: false
 
@@ -240,9 +240,9 @@ indicators:
     category: supply_chain
     value_type: numeric
     unit: index_points
-    baseline: 1300
-    trigger_breach: 1500
-    trigger_critical: 2000
+    baseline: 2500
+    trigger_breach: 3200
+    trigger_critical: 4000
     is_inverted: false
     is_two_sided: false
 
@@ -336,7 +336,7 @@ indicators:
     is_two_sided: false
 
 # Category weights — LOCKED 2026-06-21 by user
-# Total sum: 37.6 (normalizes to 30-point scale)
+# Total sum of weights: 9.9 (LOCKED_DENOMINATOR for normalization)
 category_weights:
   energy: 1.5
   financial: 1.4
